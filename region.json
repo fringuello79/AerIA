@@ -1,0 +1,682 @@
+{
+ "name": "Italia centrale",
+ "created": "2026-11-07T14:27Z",
+ "bounds": {
+  "lonMin": 9.5,
+  "lonMax": 16.0,
+  "latMin": 40.0,
+  "latMax": 45.0
+ },
+ "terrain": {
+  "name": "Copernicus GLO-30 a tessere, 3\" (massimo per blocco)",
+  "source": "Copernicus DEM GLO-30 (registro AWS Open Data)",
+  "blockMax": true,
+  "peaks": {
+   "raised": 11272,
+   "maxRaiseM": 225,
+   "rejected": [
+    {
+     "n": "Col di Paghezzana",
+     "ele": 629.0,
+     "lon": 9.984773,
+     "lat": 44.1287018,
+     "demM": 272
+    },
+    {
+     "n": "Sfiataticci",
+     "ele": 630.0,
+     "lon": 12.9423792,
+     "lat": 41.7183475,
+     "demM": 323
+    },
+    {
+     "n": "Capo Collofio",
+     "ele": 1448.0,
+     "lon": 13.1940007,
+     "lat": 41.8912005,
+     "demM": 1047
+    }
+   ]
+  },
+  "tiles": [
+   {
+    "key": "N44E009",
+    "file": "terrain/N44E009.json",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 9.000277777777777,
+    "cy0": 44.999722222222225,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "bounds": {
+     "lonMin": 9,
+     "lonMax": 10,
+     "latMin": 44,
+     "latMax": 45
+    },
+    "minM": 0,
+    "maxM": 1852
+   },
+   {
+    "key": "N44E010",
+    "file": "terrain/N44E010.json",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 10.000277777777777,
+    "cy0": 44.999722222222225,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "bounds": {
+     "lonMin": 10,
+     "lonMax": 11,
+     "latMin": 44,
+     "latMax": 45
+    },
+    "minM": 0,
+    "maxM": 2165
+   },
+   {
+    "key": "N44E011",
+    "file": "terrain/N44E011.json",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 11.000277777777777,
+    "cy0": 44.999722222222225,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "bounds": {
+     "lonMin": 11,
+     "lonMax": 12,
+     "latMin": 44,
+     "latMax": 45
+    },
+    "minM": -5,
+    "maxM": 1318
+   },
+   {
+    "key": "N44E012",
+    "file": "terrain/N44E012.json",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 12.000277777777777,
+    "cy0": 44.999722222222225,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "bounds": {
+     "lonMin": 12,
+     "lonMax": 13,
+     "latMin": 44,
+     "latMax": 45
+    },
+    "minM": -6,
+    "maxM": 688
+   },
+   {
+    "key": "N44E013",
+    "file": "terrain/N44E013.json",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 13.000277777777777,
+    "cy0": 44.999722222222225,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "bounds": {
+     "lonMin": 13,
+     "lonMax": 14,
+     "latMin": 44,
+     "latMax": 45
+    },
+    "minM": 0,
+    "maxM": 257
+   },
+   {
+    "key": "N44E014",
+    "file": "terrain/N44E014.json",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 14.000277777777777,
+    "cy0": 44.999722222222225,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "bounds": {
+     "lonMin": 14,
+     "lonMax": 15,
+     "latMin": 44,
+     "latMax": 45
+    },
+    "minM": 0,
+    "maxM": 1676
+   },
+   {
+    "key": "N44E015",
+    "file": "terrain/N44E015.json",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 15.000277777777777,
+    "cy0": 44.999722222222225,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "bounds": {
+     "lonMin": 15,
+     "lonMax": 16,
+     "latMin": 44,
+     "latMax": 45
+    },
+    "minM": -3,
+    "maxM": 1758
+   },
+   {
+    "key": "N43E009",
+    "file": "terrain/N43E009.json",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 9.000277777777777,
+    "cy0": 43.999722222222225,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "bounds": {
+     "lonMin": 9,
+     "lonMax": 10,
+     "latMin": 43,
+     "latMax": 44
+    },
+    "minM": 0,
+    "maxM": 440
+   },
+   {
+    "key": "N43E010",
+    "file": "terrain/N43E010.json",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 10.000277777777777,
+    "cy0": 43.999722222222225,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "bounds": {
+     "lonMin": 10,
+     "lonMax": 11,
+     "latMin": 43,
+     "latMax": 44
+    },
+    "minM": -3,
+    "maxM": 1318
+   },
+   {
+    "key": "N43E011",
+    "file": "terrain/N43E011.json",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 11.000277777777777,
+    "cy0": 43.999722222222225,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "bounds": {
+     "lonMin": 11,
+     "lonMax": 12,
+     "latMin": 43,
+     "latMax": 44
+    },
+    "minM": 22,
+    "maxM": 1657
+   },
+   {
+    "key": "N43E012",
+    "file": "terrain/N43E012.json",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 12.000277777777777,
+    "cy0": 43.999722222222225,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "bounds": {
+     "lonMin": 12,
+     "lonMax": 13,
+     "latMin": 43,
+     "latMax": 44
+    },
+    "minM": 0,
+    "maxM": 1701
+   },
+   {
+    "key": "N43E013",
+    "file": "terrain/N43E013.json",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 13.000277777777777,
+    "cy0": 43.999722222222225,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "bounds": {
+     "lonMin": 13,
+     "lonMax": 14,
+     "latMin": 43,
+     "latMax": 44
+    },
+    "minM": -1,
+    "maxM": 1624
+   },
+   {
+    "key": "N43E015",
+    "file": "terrain/N43E015.json",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 15.000277777777777,
+    "cy0": 43.999722222222225,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "bounds": {
+     "lonMin": 15,
+     "lonMax": 16,
+     "latMin": 43,
+     "latMax": 44
+    },
+    "minM": -1,
+    "maxM": 503
+   },
+   {
+    "key": "N42E009",
+    "file": "terrain/N42E009.json",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 9.000277777777777,
+    "cy0": 42.999722222222225,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "bounds": {
+     "lonMin": 9,
+     "lonMax": 10,
+     "latMin": 42,
+     "latMax": 43
+    },
+    "minM": -1,
+    "maxM": 2611
+   },
+   {
+    "key": "N42E010",
+    "file": "terrain/N42E010.json",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 10.000277777777777,
+    "cy0": 42.999722222222225,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "bounds": {
+     "lonMin": 10,
+     "lonMax": 11,
+     "latMin": 42,
+     "latMax": 43
+    },
+    "minM": -3,
+    "maxM": 1019
+   },
+   {
+    "key": "N42E011",
+    "file": "terrain/N42E011.json",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 11.000277777777777,
+    "cy0": 42.999722222222225,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "bounds": {
+     "lonMin": 11,
+     "lonMax": 12,
+     "latMin": 42,
+     "latMax": 43
+    },
+    "minM": -40,
+    "maxM": 1738
+   },
+   {
+    "key": "N42E012",
+    "file": "terrain/N42E012.json",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 12.000277777777777,
+    "cy0": 42.999722222222225,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "bounds": {
+     "lonMin": 12,
+     "lonMax": 13,
+     "latMin": 42,
+     "latMax": 43
+    },
+    "minM": 6,
+    "maxM": 2217
+   },
+   {
+    "key": "N42E013",
+    "file": "terrain/N42E013.json",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 13.000277777777777,
+    "cy0": 42.999722222222225,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "bounds": {
+     "lonMin": 13,
+     "lonMax": 14,
+     "latMin": 42,
+     "latMax": 43
+    },
+    "minM": 0,
+    "maxM": 2912
+   },
+   {
+    "key": "N42E014",
+    "file": "terrain/N42E014.json",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 14.000277777777777,
+    "cy0": 42.999722222222225,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "bounds": {
+     "lonMin": 14,
+     "lonMax": 15,
+     "latMin": 42,
+     "latMax": 43
+    },
+    "minM": 0,
+    "maxM": 2793
+   },
+   {
+    "key": "N42E015",
+    "file": "terrain/N42E015.json",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 15.000277777777777,
+    "cy0": 42.999722222222225,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "bounds": {
+     "lonMin": 15,
+     "lonMax": 16,
+     "latMin": 42,
+     "latMax": 43
+    },
+    "minM": 0,
+    "maxM": 116
+   },
+   {
+    "key": "N41E009",
+    "file": "terrain/N41E009.json",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 9.000277777777777,
+    "cy0": 41.999722222222225,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "bounds": {
+     "lonMin": 9,
+     "lonMax": 10,
+     "latMin": 41,
+     "latMax": 42
+    },
+    "minM": -2,
+    "maxM": 2130
+   },
+   {
+    "key": "N41E011",
+    "file": "terrain/N41E011.json",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 11.000277777777777,
+    "cy0": 41.999722222222225,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "bounds": {
+     "lonMin": 11,
+     "lonMax": 12,
+     "latMin": 41,
+     "latMax": 42
+    },
+    "minM": 0,
+    "maxM": 9
+   },
+   {
+    "key": "N41E012",
+    "file": "terrain/N41E012.json",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 12.000277777777777,
+    "cy0": 41.999722222222225,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "bounds": {
+     "lonMin": 12,
+     "lonMax": 13,
+     "latMin": 41,
+     "latMax": 42
+    },
+    "minM": -20,
+    "maxM": 1378
+   },
+   {
+    "key": "N41E013",
+    "file": "terrain/N41E013.json",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 13.000277777777777,
+    "cy0": 41.999722222222225,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "bounds": {
+     "lonMin": 13,
+     "lonMax": 14,
+     "latMin": 41,
+     "latMax": 42
+    },
+    "minM": -3,
+    "maxM": 2285
+   },
+   {
+    "key": "N41E014",
+    "file": "terrain/N41E014.json",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 14.000277777777777,
+    "cy0": 41.999722222222225,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "bounds": {
+     "lonMin": 14,
+     "lonMax": 15,
+     "latMin": 41,
+     "latMax": 42
+    },
+    "minM": -1,
+    "maxM": 2189
+   },
+   {
+    "key": "N41E015",
+    "file": "terrain/N41E015.json",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 15.000277777777777,
+    "cy0": 41.999722222222225,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "bounds": {
+     "lonMin": 15,
+     "lonMax": 16,
+     "latMin": 41,
+     "latMax": 42
+    },
+    "minM": -2,
+    "maxM": 1151
+   },
+   {
+    "key": "N40E009",
+    "file": "terrain/N40E009.json",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 9.000277777777777,
+    "cy0": 40.999722222222225,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "bounds": {
+     "lonMin": 9,
+     "lonMax": 10,
+     "latMin": 40,
+     "latMax": 41
+    },
+    "minM": -1,
+    "maxM": 1824
+   },
+   {
+    "key": "N40E012",
+    "file": "terrain/N40E012.json",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 12.000277777777777,
+    "cy0": 40.999722222222225,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "bounds": {
+     "lonMin": 12,
+     "lonMax": 13,
+     "latMin": 40,
+     "latMax": 41
+    },
+    "minM": 0,
+    "maxM": 287
+   },
+   {
+    "key": "N40E013",
+    "file": "terrain/N40E013.json",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 13.000277777777777,
+    "cy0": 40.999722222222225,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "bounds": {
+     "lonMin": 13,
+     "lonMax": 14,
+     "latMin": 40,
+     "latMax": 41
+    },
+    "minM": -2,
+    "maxM": 789
+   },
+   {
+    "key": "N40E014",
+    "file": "terrain/N40E014.json",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 14.000277777777777,
+    "cy0": 40.999722222222225,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "bounds": {
+     "lonMin": 14,
+     "lonMax": 15,
+     "latMin": 40,
+     "latMax": 41
+    },
+    "minM": -3,
+    "maxM": 1806
+   },
+   {
+    "key": "N40E015",
+    "file": "terrain/N40E015.json",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 15.000277777777777,
+    "cy0": 40.999722222222225,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "bounds": {
+     "lonMin": 15,
+     "lonMax": 16,
+     "latMin": 40,
+     "latMax": 41
+    },
+    "minM": 0,
+    "maxM": 2005
+   }
+  ],
+  "sea": [
+   "N40E010",
+   "N40E011",
+   "N41E010",
+   "N43E014"
+  ],
+  "overview": {
+   "key": "overview",
+   "file": "terrain/overview.json",
+   "w": 780,
+   "h": 600,
+   "cx0": 9.504027777777777,
+   "cy0": 44.99597222222222,
+   "dx": 0.008333333333333333,
+   "dy": -0.008333333333333333,
+   "bounds": {
+    "lonMin": 9.5,
+    "lonMax": 16.0,
+    "latMin": 40.0,
+    "latMax": 45.0
+   }
+  },
+  "checks": [
+   {
+    "name": "Corno Grande",
+    "refM": 2912,
+    "fineM": 2912,
+    "overviewM": 2912
+   },
+   {
+    "name": "Monte Velino",
+    "refM": 2486,
+    "fineM": 2486,
+    "overviewM": 2486
+   },
+   {
+    "name": "Monte Amaro",
+    "refM": 2793,
+    "fineM": 2793,
+    "overviewM": 2793
+   },
+   {
+    "name": "Monte Vettore",
+    "refM": 2476,
+    "fineM": 2476,
+    "overviewM": 2476
+   },
+   {
+    "name": "Monte Terminillo",
+    "refM": 2217,
+    "fineM": 2217,
+    "overviewM": 2217
+   },
+   {
+    "name": "Monte Cimone",
+    "refM": 2165,
+    "fineM": 2165,
+    "overviewM": 2165
+   }
+  ],
+  "attribution": "produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved"
+ },
+ "basemap": {
+  "file": "basemap.json",
+  "source": "OpenStreetMap (Overpass API)",
+  "downloaded": "2026-11-07T14:27Z",
+  "counts": {
+   "places": 6572,
+   "peaks": 17878,
+   "roads": {
+    "motorway": 137,
+    "trunk": 409,
+    "primary": 5306
+   },
+   "rail": 687,
+   "rivers": 821,
+   "lakes": 82
+  },
+  "license": "ODbL 1.0",
+  "attribution": "Base cartografica: © OpenStreetMap contributors (ODbL)"
+ }
+}
