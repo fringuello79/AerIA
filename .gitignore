@@ -1,0 +1,25 @@
+# Dati reali: licenze proprie e file pesanti, restano solo in locale
+/data/
+*.hgt
+*.hgt.zip
+*.tif
+*.tiff
+*_asp.geojson
+*_asp.txt
+
+# Dati di prova sintetici e immagini dei test: si rigenerano con tools/
+tools/test-data/
+tools/*.png
+
+# Node / Python / sistema
+node_modules/
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
+.env
+
+# Pacchetto Italia centrale: terreno e base cartografica arrivano dal ramo «pacchetti» (workflow «Pacchetto dati»)
+web-prototype/data/centro/terrain/
+web-prototype/data/centro/region.json
+web-prototype/data/centro/basemap.json

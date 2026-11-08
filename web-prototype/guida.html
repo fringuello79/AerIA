@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<!-- AerIA VFR · © 2026 fringuello79 (Avezzano). Tutti i diritti riservati. -->
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guida all’uso · AerIA VFR</title>
+<style>
+  :root { color-scheme: light dark; --ink: #17202a; --muted: #5b6875; --line: #d5dbe1; --accent: #0b6bcb; --crit: #c8102e; --bg: #fff; }
+  @media (prefers-color-scheme: dark) { :root { --ink: #eef2f6; --muted: #a8b4c0; --line: #34404c; --accent: #4fb3ff; --crit: #ff5d6c; --bg: #12171c; } }
+  body.dark { --ink: #eef2f6; --muted: #a8b4c0; --line: #34404c; --accent: #4fb3ff; --crit: #ff5d6c; --bg: #12171c; }
+  body { margin: 0; padding: 16px 20px 40px; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--ink); background: var(--bg); max-width: 860px; }
+  h1 { font-size: 1.5em; margin: 0 0 4px; } h2 { font-size: 1.15em; margin: 26px 0 6px; padding-top: 8px; border-top: 1px solid var(--line); }
+  h3 { font-size: 1em; margin: 14px 0 4px; } p, li { margin: 4px 0; } ul { padding-left: 20px; }
+  .avviso { border: 2px solid var(--crit); border-radius: 4px; padding: 8px 12px; margin: 10px 0; }
+  .note { color: var(--muted); font-size: .92em; } nav a { display: inline-block; margin: 2px 10px 2px 0; color: var(--accent); }
+  b.k { font-weight: 700; padding: 0 4px; border: 1px solid var(--line); border-radius: 3px; }
+</style>
+</head>
+<body>
+<h1>Guida all’uso</h1>
+<p class="note">Questa guida è dentro l’app e si legge anche senza rete.</p>
+<div class="avviso"><b>Prototipo.</b> AerIA VFR è un ausilio in fase di prova: non sostituisce le carte, l’AIP, i NOTAM, il
+manuale di volo e i servizi ufficiali. Spazi aerei, campi e ostacoli vengono da openAIP e OpenStreetMap, non dall’AIP
+ENAV. Le decisioni le prende il pilota.</div>
+<nav><a href="#prima">Prima del volo</a><a href="#rotta">Rotta</a><a href="#avvisi">Avvisi</a><a href="#meteo">Meteo e minimi</a>
+<a href="#piano">Piano di volo</a><a href="#volo">In volo</a><a href="#liste">Liste di controllo</a><a href="#emerg">Emergenza</a>
+<a href="#radio">Radio</a><a href="#dopo">Dopo il volo</a><a href="#rete">Senza rete e aggiornamenti</a><a href="#aspetto">Aspetto e fluidità</a></nav>
+
+<h2 id="prima">Prima del volo</h2>
+<ul>
+  <li>In «Pianifica» scegli data, apparecchio (VDS, VDS avanzato, PPL), quota di crociera e QNH. In alto vedi il limite VDS
+    (1000 ft sul rilievo più alto entro 5 km, RAIT.5005 d)2)) e il giorno aeronautico: per il VDS da 30 minuti prima del
+    sorgere a 30 minuti dopo il tramonto (DPR 133/2010), senza uscire dal crepuscolo civile; per il PPL fino alla fine del
+    crepuscolo civile (definizione di notte di SERA).</li>
+  <li>In «Pilota e aereo» (pannello del piano di volo) scegli il profilo dell’aereo: P2002 Sierra o P96 Golf
+    dell’Aeroclub dei Marsi, oppure una tua copia personale con i dati del tuo esemplare.</li>
+  <li>Imposta i tuoi <b>minimi meteo personali</b>: base delle nubi, visibilità, vento, raffiche, vento al traverso.</li>
+</ul>
+
+<h2 id="rotta">Disegnare e modificare la rotta</h2>
+<ul>
+  <li><b>Aggiungi punti</b>, poi tocca la carta; oppure cerca un campo, un punto di riporto, una radioassistenza o una
+    località nel campo di ricerca (anche per codice, per esempio LIAH per Celano).</li>
+  <li><b>Spostare un punto</b>: il primo tocco lo <b>seleziona</b> (anello arancio) senza muoverlo; poi va
+    <b>trascinato col dito</b>, partendo proprio dal punto: si sposta di quanto si sposta il dito, solo dopo qualche
+    pixel di movimento. Un tocco altrove lo deseleziona e non lo sposta mai; se mentre trascini appoggi un secondo dito
+    (per lo zoom) il trascinamento si annulla e il punto torna dov’era.</li>
+  <li><b>Ordine dei punti</b>: nella lista, le frecce <b>su</b> e <b>giù</b> accanto a ogni punto lo spostano prima o dopo
+    il vicino. Per mettere un campo o un punto come <b>partenza</b>: tasto «Partenza» nei risultati della ricerca, oppure
+    «Come partenza» nella colonna d’aria (tieni premuto sulla carta).</li>
+  <li><b>Partenza e arrivo a terra</b>: il primo e l’ultimo punto stanno sempre a terra, alla quota del campo (openAIP)
+    o del terreno. Se il campo è più alto o più basso (per esempio Celano a 2260 ft), scrivilo nella casella «a terra»
+    del punto. All’arrivo il profilo scende alla quota di circuito sul campo e poi atterra. Solo se il piano si fa
+    <b>già in volo</b>, segna la casella accanto alla partenza: allora la partenza è in aria alla quota del primo punto.</li>
+  <li><b>Quota dei punti</b>: ogni punto ha la sua quota (casella nella lista). La quota si raggiunge <b>sul punto</b>
+    e tra due punti la rotta è una linea dritta. Si cambia dalla casella, dalla maniglia blu in 3D (prima tocca, poi
+    trascina) oppure nel <b>profilo in basso</b>: tocca il pallino del punto (si evidenzia), poi trascinalo su o giù; la
+    casella cambia insieme. Un tocco altrove sul profilo lo deseleziona. Il campo di partenza resta a terra: trascinandolo
+    cambi la quota da raggiungere dopo il decollo; il campo d’arrivo resta a terra.</li>
+  <li><b>Mai dentro le montagne</b>: se un tratto passa a meno di 500 ft dal rilievo più alto entro 600 m, il programma
+    alza la quota del punto quanto basta e lo scrive negli avvisi. Se dopo il decollo (o prima dell'atterraggio) le
+    montagne vicine non lasciano salire o scendere in linea, propone di <b>prendere quota sul campo</b> (o di scendere
+    sul campo) e lo disegna come tratto verticale sul campo. Se il rateo dell'aereo non basta per arrivare alla quota di
+    un punto, il nodo resta alla sua quota con un tratteggio rosso e un avviso.</li>
+  <li><b>Piegare la rotta</b>: trascina la linea magenta; nasce un punto nuovo.</li>
+  <li><b>Annulla l’ultima modifica</b>: pulsante con la freccia indietro sulla carta e nella lista dei punti
+    (<b class="k">Ctrl+Z</b> sulla tastiera). Torna indietro di una modifica alla volta, fino a 50.</li>
+  <li>Il <b>cestino</b> toglie il punto; <b>tieni premuto</b> su un punto della carta per vedere la colonna d’aria
+    (spazi aerei sopra quel punto).</li>
+  <li><b>Spazi aerei alti</b>: nella legenda sulla carta, «Spazi fino a» nasconde quelli che iniziano più in alto (di
+    solito «crociera + 2500 ft»); restano comunque nei controlli della rotta. Dove più spazi sono uno sopra l’altro, il
+    tocco sceglie il più basso; un altro tocco nello stesso punto passa a quello sopra. I limiti sopra il terreno
+    (AGL, per esempio «3300 ft AGL» dei parchi) seguono il rilievo anche dentro lo spazio.</li>
+</ul>
+
+<h2 id="avvisi">Avvisi</h2>
+<p>Il pannello «Avvisi» elenca ciò che i controlli a regole trovano lungo la rotta: spazi aerei, terreno e ostacoli,
+limite VDS, distanza dagli aeroporti, meteo, minimi personali, giorno aeronautico, carburante. «Da risolvere» (rosso)
+va sistemato prima di partire; «Da controllare» (arancio) va verificato sulle fonti ufficiali. Il mirino porta la carta
+sul punto dell’avviso. Gli avvisi li produce codice a regole verificabili, non un’intelligenza artificiale.</p>
+<p>Il programma dice sempre <b>quanto sono vecchi i dati</b>. L’AIP cambia solo alle date del ciclo AIRAC, ogni
+28 giorni: se gli spazi aerei installati sono di prima del ciclo in vigore nel giorno del volo compare un avviso
+(arancio con un ciclo di ritardo, rosso con due o più). Gli spazi attraversati che alla fonte non cambiano da anni sono
+segnalati come informazione. Il ciclo dei dati installati si vede anche in Impostazioni, «Senza rete».</p>
+<p class="note">Non sono ancora nel programma: NOTAM e attivazioni delle zone (AUP/UUP). L’avviso «NOTAM e attivazioni
+delle zone non caricati» resta in ogni rotta: fai sempre il briefing su ENAV Self Briefing o con l’ARO-CBO.</p>
+
+<h2 id="meteo">Meteo e minimi personali</h2>
+<ul>
+  <li>«Meteo» scarica METAR e TAF (Aviation Weather Center), radar della Protezione Civile e previsione del vento.</li>
+  <li>I minimi personali si confrontano con il METAR attuale e con il TAF all’ora di decollo e di arrivo: condizioni
+    prevalenti fuori dai minimi = «da risolvere»; condizioni temporanee o probabili (TEMPO, PROB) = «da controllare».</li>
+  <li>Senza rete l’app usa l’ultima copia scaricata, con l’età ricalcolata: i METAR più vecchi di 90 minuti non valgono;
+    i TAF valgono solo per il periodo che coprono; i SIGMET non ci sono.</li>
+</ul>
+
+<h2 id="piano">Piano di volo</h2>
+<p>«Piano di volo» compila il modulo dell’Aeroclub dei Marsi: log di navigazione con vento, tempi e carburante, peso
+e centraggio, stampa A4, salvataggio e GPX. I valori dei profili di riferimento sono quelli dei manuali e dei documenti
+dell’aeroclub: confrontali con la scheda di pesata del tuo aereo.</p>
+
+<h2 id="volo">In volo</h2>
+<ul>
+  <li><b>Guardarsi intorno</b>: in volo la carta segue l’aereo con la prua in alto. Se la ruoti, la sposti o la
+    ingrandisci col dito, resta dove l’hai portata. Il pulsante col <b>mirino</b> sotto la bussola diventa arancio:
+    toccalo per tornare sull’aereo con la prua in alto.</li>
+  <li>«Volo» → <b>Avvia GPS</b> (GPS del tablet o strumento esterno via Bluetooth o USB). «Simula» serve per provare a
+    terra lungo la rotta. I comandi del volo stanno in una riga sotto la carta.</li>
+  <li>Le caselle in alto mostrano i dati del volo: toccane una per scegliere un altro dato.</li>
+  <li>Il rilievo si colora rispetto alla quota dell’aereo: <b>rosso</b> a meno di 100 ft sotto (o sopra), <b>giallo</b>
+    tra 100 e 1000 ft sotto. A terra e vicino ai campi sotto 1000 ft resta spento, per non dare falsi allarmi.</li>
+  <li><b>Tempi</b>: tempo di volo, cronometro, promemoria periodici e promemoria su un punto della rotta («minuti prima»,
+    «sopra», «al traverso»).</li>
+  <li>L’aereo gira la prua dolcemente nella direzione del volo. <b>Scia</b> (accesa o spenta) lascia sulla carta la
+    traccia di questo volo, sempre appena sopra il terreno.</li>
+  <li>Lo schermo resta acceso per tutto il tempo in cui l’app è aperta.</li>
+  <li><b>Traffico FLARM</b> (strumento collegato): frecce con la quota relativa in centinaia di piedi; l’allarme apre una
+    finestra con «Mostra», «Sospendi 5 min», «Chiudi». Guarda sempre fuori: non tutti trasmettono.</li>
+</ul>
+
+<h2 id="liste">Liste di controllo</h2>
+<ul>
+  <li>Pulsante <b>Liste</b> (in «Volo»): per il P96 Golf e il P2002 Sierra ci sono le liste ufficiali dell’Aeroclub dei
+    Marsi, con la revisione indicata in alto. Le righe hanno gli stessi colori del documento cartaceo.</li>
+  <li>Tocca una voce per spuntarla; «Lista seguente» passa alla fase successiva; «Ricomincia» toglie le spunte.</li>
+  <li>In fondo all’elenco c’è la tabella del motore e delle velocità e il promemoria per chiudere il piano di volo.</li>
+  <li>Le liste dell’aeroclub non si modificano nell’app: una nuova revisione arriva con un aggiornamento. «Liste
+    personali» ti permette di aggiungere liste tue, copiate dal manuale di volo.</li>
+</ul>
+
+<h2 id="emerg">Emergenza</h2>
+<p>Il pulsante rosso <b>Emergenza</b> mostra i campi raggiungibili in planata (con il vento e il margine scelto), il
+«diretto» al migliore con un tocco, il messaggio MAYDAY già compilato nell’ordine del regolamento e il codice 7700. Se
+hai una lista di emergenza personale, si apre da lì.</p>
+
+<h2 id="radio">Radio</h2>
+<p>«Radio» raccoglie la fraseologia del Regolamento ENAC «Regole dell’aria Italia» (RAIT) con la fonte sotto ogni
+scheda: chiamate all’aria sul 130.005, avaria radio, MAYDAY e PAN PAN, pronuncia dei tuoi dati.</p>
+
+<h2 id="dopo">Dopo il volo</h2>
+<p><b>Rivedi il volo</b> mostra la traccia (verde, arancio o rossa dove ci sono superamenti), il grafico quota-tempo e
+l’elenco dei superamenti. Il diario dei voli si compila da solo e si esporta in CSV.</p>
+
+<h2 id="rete">Senza rete e aggiornamenti</h2>
+<ul>
+  <li>Tutto ciò che serve per pianificare e navigare è <b>dentro l’app installata</b>: spazi aerei, campi, punti, ostacoli,
+    terreno, declinazione magnetica, liste di controllo, radio, emergenza, piano di volo e questa guida. Senza rete
+    mancano solo meteo aggiornato, radar, previsioni del vento e collegamenti ai siti ufficiali.</li>
+  <li>Con la rete e a terra, l’app controlla all’avvio e ogni 6 ore se c’è una <b>nuova versione</b>. Se c’è, la propone:
+    «Scarica e installa» la scarica, ne controlla l’impronta digitale (SHA-256) e la passa ad Android, che chiede la tua
+    conferma. La prima volta Android chiede il permesso «Installa app sconosciute» per AerIA VFR. In volo non controlla.</li>
+  <li>Impostazioni → «Aggiornamenti e uso senza rete» mostra la versione installata, l’ultimo controllo e cosa è
+    disponibile senza rete.</li>
+</ul>
+
+<h2 id="aspetto">Aspetto e fluidità</h2>
+<ul>
+  <li>Impostazioni → Aspetto: <b>Giorno</b>, <b>Notte</b> o <b>Cabina</b> (stile degli strumenti di bordo).</li>
+  <li>Il terreno 3D è fatto di <b>tessere</b>: fini vicino a dove guardi, più grandi lontano, aggiornate anche mentre la
+    carta si muove; quelle già viste restano in memoria. Non c’è più un riquadro di dettaglio con il bordo netto.</li>
+  <li>Impostazioni → Carta → <b>Qualità grafica</b>: «Automatica» abbassa da sola risoluzione e dettaglio del terreno se il
+    dispositivo non riesce a muovere la carta in modo fluido, e li rialza quando può. «Bassa» è per i tablet vecchi.
+    La qualità riguarda solo il disegno: i controlli di sicurezza usano sempre il terreno alla piena risoluzione.</li>
+</ul>
+<p class="note">AerIA VFR · by fringuello79</p>
+<script>
+  try { if (parent && parent.document.body.classList.contains('theme-night')) document.body.classList.add('dark'); } catch (e) { /* aperta da sola */ }
+</script>
+</body>
+</html>

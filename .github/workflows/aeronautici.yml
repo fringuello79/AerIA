@@ -1,0 +1,79 @@
+# AerIA VFR · © 2026 fringuello79 (Avezzano). Tutti i diritti riservati.
+# Aggiornamento dei dati aeronautici del pacchetto «Italia centrale» (spazi aerei, campi, ostacoli, punti di riporto,
+# radioassistenze) dagli export openAIP Italia, rigenerati da openAIP ogni notte.
+# Non modifica mai «main» da solo: se qualcosa è cambiato prepara il ramo «dati-openaip» con l'elenco delle
+# differenze (tools/confronta_dati.py) e apre una richiesta di modifica da approvare dopo il confronto con l'AIP.
+# Gira ogni venerdì (il ciclo AIRAC inizia di giovedì) e a richiesta.
+name: Dati aeronautici
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 4 * * 5"
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: dati-aeronautici
+  cancel-in-progress: false
+
+jobs:
+  openaip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Dipendenze
+        run: pip install egm96==0.3.0 pygeomag==1.1.0
+
+      - name: Scarica gli export openAIP Italia
+        run: |
+          mkdir -p data
+          for f in asp apt obs rpp nav; do
+            curl -fsS --retry 3 -m 120 -o data/it_$f.geojson "https://s3.openaip.net/openaip-system-exports/it_$f.geojson"
+            python3 -c "import json,sys; d=json.load(open('data/it_$f.geojson')); n=len(d['features']); print('it_$f', n); sys.exit(0 if n > 0 else 1)"
+          done
+
+      - name: Rigenera il pacchetto e confronta
+        run: |
+          cp -r web-prototype/data/centro /tmp/vecchio
+          OPENAIP_DATE=$(date -u +%Y-%m-%d) python3 tools/make_centro.py
+          python3 tools/confronta_dati.py /tmp/vecchio web-prototype/data/centro --esito /tmp/esito > /tmp/differenze.md
+          {
+            echo "# Dati openAIP del $(date -u +%Y-%m-%d)"
+            echo
+            cat /tmp/differenze.md
+          } > /tmp/rapporto.md
+          cat /tmp/rapporto.md >> "$GITHUB_STEP_SUMMARY"
+          echo "esito: $(cat /tmp/esito)"
+
+      - name: Prove automatiche
+        run: npm test
+
+      - name: Ramo «dati-openaip» e richiesta di modifica
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "$(cat /tmp/esito)" != "cambiati" ]; then echo "Nessuna differenza nei dati: niente da proporre."; exit 0; fi
+          git config user.name "AerIA VFR CI"
+          git config user.email "actions@users.noreply.github.com"
+          git checkout -b dati-openaip
+          git add web-prototype/data/centro/airspaces.json web-prototype/data/centro/features.json web-prototype/data/centro/pack.json
+          git commit -q -m "Dati openAIP del $(date -u +%Y-%m-%d) (da confrontare con l'AIP prima di accettare)"
+          git push -q -f origin dati-openaip
+          TITLE="Dati openAIP del $(date -u +%Y-%m-%d): da verificare"
+          NUM=$(gh pr list --head dati-openaip --state open --json number -q '.[0].number')
+          if [ -n "$NUM" ]; then
+            gh pr edit "$NUM" --title "$TITLE" --body-file /tmp/rapporto.md
+          elif ! gh pr create --base main --head dati-openaip --title "$TITLE" --body-file /tmp/rapporto.md; then
+            echo "Richiesta di modifica non consentita al workflow: apro una segnalazione con lo stesso elenco."
+            gh issue create --title "$TITLE" --body-file /tmp/rapporto.md
+          fi

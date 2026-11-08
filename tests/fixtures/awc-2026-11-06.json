@@ -1,0 +1,12 @@
+{
+  "_fonte": "Campione reale scaricato il 06/11/2026 alle 08:30 UTC da https://aviationweather.gov/api/data (NOAA, dominio pubblico). Usato solo per i test: NON è meteo attuale.",
+  "metar": [
+    {"icaoId":"LIRA","obsTime":1793953200,"temp":13,"dewp":10,"wdir":30,"wspd":5,"visib":"6+","altim":1019,"wxString":"-RA","clouds":[{"cover":"SCT","base":4000},{"cover":"SCT","base":6000}],"fltCat":"VFR","rawOb":"METAR LIRA 060820Z 03005KT 010V070 9999 -RA SCT040 SCT060 13/10 Q1019","rawTaf":"TAF LIRA 060500Z 0606/0706 07008KT 9999 RA SCT040 BECMG 0606/0608 13012KT BECMG 0612/0614 NSW BECMG 0618/0620 VRB05KT TEMPO 0620/0702 RA","lat":41.808,"lon":12.585,"elev":101,"name":"Rome/Ciampino Arpt, RM, IT"},
+    {"icaoId":"LIBP","obsTime":1793953200,"temp":14,"dewp":8,"wdir":220,"wspd":5,"visib":"6+","altim":1023,"clouds":[{"cover":"BKN","base":16000}],"fltCat":"VFR","rawOb":"METAR LIBP 060820Z AUTO 22005KT 9999 BKN160/// 14/08 Q1023","rawTaf":"TAF LIBP 060500Z 0606/0706 VRB05KT 9999 BKN030 TEMPO 0613/0620 RA BKN014","lat":42.432,"lon":14.181,"elev":10,"name":"Pescara/Abruzzo Arpt, AB, IT"},
+    {"icaoId":"LIQN","obsTime":1793951760,"temp":10,"dewp":9,"wdir":340,"wspd":4,"visib":"6+","altim":1021,"clouds":[],"fltCat":"VFR","rawOb":"SPECI LIQN 060756Z 34004KT CAVOK 10/09 Q1021","lat":42.427,"lon":12.85,"elev":387,"name":"Rieti Arpt, RI, IT"},
+    {"icaoId":"LIRH","obsTime":1793951700,"temp":12,"dewp":9,"wdir":90,"wspd":3,"visib":"6+","altim":1021,"clouds":[{"cover":"SCT","base":3500}],"fltCat":"VFR","rawOb":"METAR LIRH 060755Z 09003KT 9999 SCT035 12/09 Q1021","rawTaf":"TAF LIRH 060800Z 0609/0618 16005KT 9999 SCT035 TEMPO 0609/0615 5000 RA BR FEW030CB BKN035","lat":41.646,"lon":13.3,"elev":183,"name":"Frosinone, FR, IT"}
+  ],
+  "isigmet": [
+    {"icaoId":"LPMG","firId":"LPPO","firName":"LPPO SANTA MARIA OCEANIC","validTimeFrom":1793944800,"validTimeTo":1793959200,"seriesId":"T02","hazard":"TS","qualifier":"","base":null,"top":40000,"geom":"AREA","coords":[{"lon":-19.967,"lat":34.067},{"lon":-16.117,"lat":40.467},{"lon":-15,"lat":39.967},{"lon":-15,"lat":36.5},{"lon":-16.467,"lat":35.317},{"lon":-19.967,"lat":34.067}],"rawSigmet":"LPPO SIGMET T02 VALID 060600/061000 LPPT- LPPO SANTA MARIA OCEANIC FIR EMBD TS FCST WI N3404 W01958 - N4028 W01607 - N3958 W015 - N3630 W015 - N3519 W01628 - N3404 W01958 TOP FL400 MOV ENE 10KT NC="}
+  ]
+}

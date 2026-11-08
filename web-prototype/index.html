@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="author" content="fringuello79, Avezzano">
+<meta name="copyright" content="© 2026 fringuello79 (Avezzano). Tutti i diritti riservati.">
+<title>AerIA VFR</title>
+<link rel="icon" type="image/png" href="./icona.png">
+<link rel="apple-touch-icon" href="./icona.png">
+<!-- AerIA VFR · © 2026 fringuello79 (Avezzano). Tutti i diritti riservati. -->
+<style>
+/* AerIA VFR · © 2026 fringuello79 (Avezzano) — interfaccia.
+   Carta a tutto schermo con pannelli a larghezza fissa sopra di essa; barra dell'applicazione scura; caratteri di
+   sistema (Roboto su Android, Segoe UI su Windows, San Francisco su iPad); campi modificabili bianchi e contornati,
+   valori di sola lettura come testo semplice: si capisce a colpo d'occhio che cosa si può cambiare. */
+:root {
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "Cascadia Mono", "Roboto Mono", Menlo, Consolas, monospace;
+  /* Giorno (predefinito): alto contrasto per la luce del sole in cabina */
+  --bar: #1d2833; --bar-2: #26333f; --bar-ink: #eef2f6; --bar-muted: #9eafbf; --bar-line: #34424f; --bar-accent: #4ea4ff;
+  --bg: #e4e8ec;
+  --panel: #f2f4f6;
+  --panel-2: #e6eaee;
+  --line: #c2cbd4;
+  --ink: #101820;
+  --muted: #536170;
+  --accent: #0a5fb4;
+  --accent-ink: #ffffff;
+  --ok: #1b7f45;
+  --warn: #a96400;
+  --crit: #c8102e;
+  --info: #2459c6;
+  --field: #ffffff; --field-ink: #000000; --field-line: #7f8d9b; --field-ro: transparent;
+  --btn: #fbfcfd; --btn-2: #eef1f4; --btn-line: #9ba7b3;
+  --scene: #dde5ec;
+  --sky-top: #8fb8de;
+  --horizon: #e3ecf3;
+  --terrain-fill: #8c8a63;
+  --route: #c8008c;
+  --route-halo: #ffffff;
+  --shadow: 0 2px 10px rgba(16, 24, 32, .18);
+  --r: 4px;
+  /* Principiante: testi grandi e tasti da circa 9 mm; in volo più grandi (cfr. Univ. Nottingham) */
+  --fs: 15px;
+  --tap: 44px;
+  --tap-fly: 72px;
+  --head: 52px;
+  --lw: 320px;   /* pannello rotta */
+  --rw: 344px;   /* pannello avvisi */
+  --ph: 172px;   /* profilo verticale */
+  color-scheme: light;
+}
+body.theme-night {
+  --bar: #06090d; --bar-2: #0f151c; --bar-ink: #dfe7ef; --bar-muted: #8798aa; --bar-line: #1f2a36; --bar-accent: #f0b232;
+  --bg: #0b1016;
+  --panel: #111921;
+  --panel-2: #0c1319;
+  --line: #2a3846;
+  --ink: #e6edf4;
+  --muted: #93a4b6;
+  --accent: #f0b232;
+  --accent-ink: #1a1203;
+  --ok: #4cc38a;
+  --warn: #f0b232;
+  --crit: #ff6b6b;
+  --info: #7aa7ff;
+  --field: #1f2d3b; --field-ink: #ffffff; --field-line: #8ba2ba;
+  --btn: #1a2430; --btn-2: #141d27; --btn-line: #3b4d60;
+  --scene: #0a1018;
+  --sky-top: #05080d;
+  --horizon: #1a2636;
+  --terrain-fill: #4f4e37;
+  --route: #ff5ad1;
+  --route-halo: #1a0614;
+  --shadow: 0 2px 12px rgba(0, 0, 0, .55);
+  color-scheme: dark;
+}
+/* ---------------------------------------------------------------- tema «Cabina»: stile da strumento di bordo
+   Fondi quasi neri, finestre con cornice in rilievo, didascalie azzurre in maiuscolo, valori bianchi a cifre fisse,
+   tasti scuri come quelli ai lati degli schermi di navigazione; campi da compilare neri con bordo azzurro. */
+body.theme-cockpit {
+  --bar: #000000; --bar-2: #0b0f13; --bar-ink: #ffffff; --bar-muted: #4fd6ff; --bar-line: #2c353e; --bar-accent: #4fd6ff;
+  --bg: #050607; --panel: #0b0e11; --panel-2: #12171c; --line: #2c353e;
+  --ink: #f4f7fa; --muted: #8fb3c7; --accent: #22c7f0; --accent-ink: #001018;
+  --ok: #3ee07a; --warn: #ffbf2e; --crit: #ff4d5e; --info: #4fd6ff;
+  --field: #000000; --field-ink: #ffffff; --field-line: #2fb6dc;
+  --btn: #2a3239; --btn-2: #161b20; --btn-line: #4a5661;
+  --route: #ff3fd0; --shadow: 0 0 0 1px #000, 0 4px 14px rgba(0,0,0,.7);
+  --r: 3px;
+}
+body.theme-cockpit .panel, body.theme-cockpit .sheet { border: 2px solid #2c353e; box-shadow: inset 0 0 0 1px #000, inset 0 1px 0 #3a444e, var(--shadow); }
+body.theme-cockpit .phead, body.theme-cockpit .tabs { background: linear-gradient(#1a2026, #0d1115); border-bottom: 2px solid #000; }
+body.theme-cockpit .phead h2, body.theme-cockpit .sh, body.theme-cockpit .f, body.theme-cockpit .tabs button[role=tab] { text-transform: uppercase; letter-spacing: .07em; }
+body.theme-cockpit .sh, body.theme-cockpit .phead h2 { color: #4fd6ff; font-size: 12px; }
+body.theme-cockpit .f { color: #8fb3c7; font-size: 11.5px; }
+body.theme-cockpit .sec { border-bottom: 2px solid #000; box-shadow: 0 1px 0 #20282f; }
+body.theme-cockpit .btn, body.theme-cockpit .seg button { color: #f4f7fa; border-color: #4a5661; box-shadow: inset 0 1px 0 #47525c, inset 0 -2px 0 #070a0d, 0 1px 0 #000; text-transform: uppercase; letter-spacing: .04em; font-size: .9em; }
+body.theme-cockpit .btn:active { box-shadow: inset 0 2px 4px #000; }
+body.theme-cockpit .btn.on, body.theme-cockpit .btn.primary, body.theme-cockpit .seg button[aria-pressed="true"] { background: linear-gradient(#123744, #0a2630); color: #4fd6ff; border-color: #2fb6dc; box-shadow: inset 0 0 0 1px #000, 0 0 6px rgba(47,182,220,.45); }
+body.theme-cockpit .btn.sos { background: linear-gradient(#a3101f, #6e0712); color: #fff; border-color: #ff4d5e; }
+body.theme-cockpit .fld, body.theme-cockpit .f input, body.theme-cockpit .f select, body.theme-cockpit #wpList input, body.theme-cockpit #findForm input, body.theme-cockpit .nl-box input, body.theme-cockpit .nl-box select {
+  background: #000; color: #fff; border: 1px solid #2fb6dc; box-shadow: inset 0 0 0 1px #000; font-family: var(--mono); }
+body.theme-cockpit .instruments { background: #000; gap: 2px; padding: 2px; }
+body.theme-cockpit .instruments div, body.theme-cockpit .instruments button { background: #000; border: 1px solid #2c353e; box-shadow: inset 0 0 0 1px #000, inset 0 1px 0 #1e262d; }
+body.theme-cockpit .instruments small { color: #4fd6ff; text-transform: uppercase; }
+body.theme-cockpit .instruments strong { font-family: var(--mono); color: #fff; }
+body.theme-cockpit .strip { background: #000; border-color: #2c353e; }
+body.theme-cockpit .strip .c small { color: #4fd6ff; }
+body.theme-cockpit .strip .c span { font-family: var(--mono); }
+body.theme-cockpit #findForm input { font-family: inherit; }
+body.theme-cockpit .warn:not(.badge) { background: #0b0e11; border-bottom: 1px solid #000; box-shadow: 0 1px 0 #1a2128; }
+body.theme-cockpit #profileWrap { background: #000; border-top: 2px solid #2c353e; }
+body.theme-cockpit .mapctl .grp { background: #12171c; border: 1px solid #4a5661; box-shadow: inset 0 1px 0 #3a444e, 0 2px 8px #000; }
+body.theme-cockpit .mapctl .grp button { color: #f4f7fa; }
+body.theme-cockpit header .views button[aria-pressed="true"] { color: #4fd6ff; }
+body.mode-expert { --fs: 13.5px; --tap: 38px; --tap-fly: 60px; }
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; overflow: hidden; }
+body { background: var(--bg); color: var(--ink); font: var(--fs)/1.35 var(--font); -webkit-tap-highlight-color: transparent; }
+button, input, select { font: inherit; color: inherit; }
+.num, input[type=number] { font-variant-numeric: tabular-nums; }
+svg.ic { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; vertical-align: middle; }
+
+/* ---------------------------------------------------------------- barra dell'applicazione */
+.app { height: 100%; display: grid; grid-template-rows: var(--head) 1fr; }
+header { position: relative; z-index: 30; background: var(--bar); color: var(--bar-ink); display: flex; align-items: stretch; gap: 0; padding: 0 8px 0 max(12px, env(safe-area-inset-left)); white-space: nowrap; overflow: hidden; border-bottom: 1px solid var(--bar-line); }
+header .brand { display: flex; align-items: center; gap: 6px; padding-right: 14px; margin-right: 6px; border-right: 1px solid var(--bar-line); font-weight: 700; font-size: 18px; letter-spacing: .01em; }
+header .brand img { border-radius: 7px; }
+header .brand .bn { display: flex; flex-direction: column; line-height: 1.05; }
+header .brand .bt { display: flex; align-items: center; gap: 5px; }
+header .brand b { color: var(--bar-accent); font-weight: 700; }
+header .brand small { font-size: 10px; font-weight: 600; color: var(--bar-muted); border: 1px solid var(--bar-line); border-radius: 3px; padding: 0 3px; }
+header .brand .by { font-size: 9.5px; font-weight: 500; color: var(--bar-muted); letter-spacing: .02em; margin-top: 2px; }
+.views { display: flex; }
+.views button { background: transparent; border: 0; border-bottom: 3px solid transparent; color: var(--bar-muted); padding: 0 14px; font-weight: 600; cursor: pointer; height: 100%; }
+.views button:hover { color: var(--bar-ink); }
+.views button[aria-pressed="true"] { color: var(--bar-ink); border-bottom-color: var(--bar-accent); }
+/* nastro della rotta: celle come su uno strumento (didascalia sopra, valore sotto) */
+.strip { display: flex; align-items: stretch; margin: 7px 0 7px 12px; border: 1px solid var(--bar-line); border-radius: var(--r); background: var(--bar-2); cursor: pointer; color: var(--bar-ink); padding: 0; font-variant-numeric: tabular-nums; }
+.strip .c { display: flex; flex-direction: column; justify-content: center; padding: 0 10px; min-width: 58px; }
+.strip .c + .c { border-left: 1px solid var(--bar-line); }
+.strip .c small { font-size: 9.5px; font-weight: 600; color: var(--bar-muted); letter-spacing: .06em; line-height: 1; margin-bottom: 2px; }
+.strip .c span { font-size: 14px; font-weight: 600; line-height: 1.1; }
+.strip .c.k { flex-direction: row; align-items: center; gap: 4px; }
+.cnt { display: inline-flex; gap: 3px; }
+.badge { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 20px; padding: 0 6px; border-radius: 3px; font-size: 12px; font-weight: 700; color: #fff; line-height: 1; }
+.badge.crit { background: var(--crit); } .badge.warn { background: #d98a00; color: #1a1203; } .badge.ok { background: var(--ok); } .badge.info { background: var(--info); }
+.proto { align-self: center; font-size: 11px; font-weight: 700; color: #ffd2d8; background: rgba(200, 16, 46, .28); border: 1px solid #ff6b81; border-radius: 3px; padding: 3px 7px; margin: 0 8px; white-space: normal; max-width: 200px; line-height: 1.15; }
+.barbtn { background: transparent; border: 0; color: var(--bar-ink); width: 46px; cursor: pointer; display: grid; place-items: center; }
+.barbtn:hover { background: var(--bar-2); }
+.spacer { flex: 1; }
+
+/* ---------------------------------------------------------------- comandi */
+.btn { background: linear-gradient(var(--btn), var(--btn-2)); border: 1px solid var(--btn-line); border-radius: var(--r); padding: 0 12px; min-height: var(--tap); cursor: pointer; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 6px; color: var(--ink); }
+.btn:hover { border-color: var(--muted); }
+.btn:active { background: var(--btn-2); }
+.btn.on, .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.danger { color: var(--crit); }
+.btn.icon { width: var(--tap); padding: 0; }
+.btn.sm { min-height: 32px; padding: 0 10px; font-size: .88em; }
+.btn.sm.icon { width: 32px; }
+.seg { display: inline-flex; border: 1px solid var(--btn-line); border-radius: var(--r); overflow: hidden; }
+.seg button { background: linear-gradient(var(--btn), var(--btn-2)); border: 0; min-height: calc(var(--tap) - 2px); padding: 0 14px; cursor: pointer; font-weight: 600; color: var(--ink); }
+.seg button + button { border-left: 1px solid var(--btn-line); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; }
+.col { display: flex; flex-direction: column; gap: 6px; }
+.note { color: var(--muted); font-size: .84em; margin: 0; }
+.attrib { font-size: .75em; color: var(--muted); }
+
+/* campi modificabili: bianchi, bordo marcato, leggera ombra interna; sola lettura: testo semplice */
+.fld, .f input, .f select, #wpList input, #findForm input, .nl-box input, .nl-box select { min-height: 38px; padding: 0 8px; font: inherit; font-size: 1rem; }
+.fld:focus, .f input:focus, .f select:focus, #wpList input:focus, #findForm input:focus, .nl-box input:focus, .nl-box select:focus { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); outline: none; }
+/* campi calcolati (non modificabili): testo semplice, senza riquadro */
+input:disabled, select:disabled, input[readonly] { background: transparent !important; border-color: transparent !important; box-shadow: none !important; color: var(--ink) !important; padding-left: 0 !important; opacity: 1; -webkit-text-fill-color: var(--ink); font-weight: 600; }
+input::placeholder { color: color-mix(in srgb, var(--field-ink) 45%, transparent); font-weight: 400; }
+
+/* ---------------------------------------------------------------- carta */
+.main { position: relative; min-height: 0; overflow: hidden; --vl: var(--lw); --vr: var(--rw); --vb: var(--ph); }
+body.left-closed .main, body.view-fly .main { --vl: 0px; }
+body.right-closed .main { --vr: 0px; }
+body.prof-closed .main { --vb: 30px; }
+body.view-radio .main, body.view-navlog .main { --vb: 0px; }
+/* altezza del profilo (--pb) e, in «Volo», la striscia dei comandi sotto la carta (--fbh): la carta usa tutto il resto */
+.main { --pb: var(--ph); --fbh: 58px; }
+body.prof-closed .main { --pb: 30px; }
+body.view-fly .main { --vb: calc(var(--pb) + var(--fbh)); }
+#view { position: absolute; inset: 0; background: linear-gradient(to bottom, var(--sky-top) 0%, var(--horizon) 55%, var(--horizon) 100%); }
+body.dim-2d #view { background: var(--scene); }
+#view canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.overlay { position: absolute; z-index: 5; }
+.hint { left: calc(var(--vl) + 10px); bottom: calc(var(--vb) + 10px); font-size: .78em; background: color-mix(in srgb, var(--panel) 92%, transparent); color: var(--ink); padding: 3px 8px; border-radius: 3px; border: 1px solid var(--line); pointer-events: none; max-width: calc(100% - var(--vl) - var(--vr) - 80px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.legend { right: calc(var(--vr) + 64px); top: 10px; display: grid; gap: 3px; font-size: .78em; background: var(--panel); padding: 4px 8px; border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); max-height: 60%; overflow: auto; }
+.legend .lh { font-weight: 600; cursor: pointer; min-height: 26px; display: flex; align-items: center; gap: 6px; }
+.legend.closed > div:not(.lh) { display: none; }
+.legend .ceil { display: flex; align-items: center; gap: 6px; font-weight: 500; }
+.legend .ceil select { font: inherit; padding: 2px 4px; min-height: 30px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: inherit; }
+.legend .ceilnote { color: var(--muted, #6b7280); font-size: .92em; }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+.scalebar { left: calc(var(--vl) + 10px); bottom: calc(var(--vb) + 42px); display: none; font: 600 .8em var(--font); background: var(--panel); padding: 3px 8px 2px; border: 1px solid var(--line); border-radius: 3px; }
+.scalebar i { display: block; height: 6px; border: 2px solid var(--ink); border-top: 0; }
+/* comandi della carta: colonna di pulsanti quadrati sul bordo destro */
+.mapctl { right: calc(var(--vr) + 10px); top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.mapctl .grp { display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--btn-line); border-radius: var(--r); box-shadow: var(--shadow); overflow: hidden; }
+.mapctl button { width: 44px; height: 42px; border: 0; background: transparent; cursor: pointer; font: 700 13px/1 var(--font); color: var(--ink); display: grid; place-items: center; }
+.mapctl .grp button + button { border-top: 1px solid var(--line); }
+.mapctl .grp button:disabled, .btn:disabled { opacity: .38; cursor: default; }
+.mapctl button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+#recenterBtn { display: none; }
+body.view-fly #recenterBtn { display: grid; }
+#recenterBtn[aria-pressed="false"] { background: #f59e0b; color: #111827; animation: rcpulse 1.6s ease-in-out infinite; }
+@keyframes rcpulse { 50% { filter: brightness(1.15); box-shadow: inset 0 0 0 3px rgba(255,255,255,.55); } }
+.tab { top: 10px; left: 0; background: var(--panel); border: 1px solid var(--btn-line); border-left: 0; box-shadow: var(--shadow); min-height: 42px; padding: 0 12px; font-weight: 600; cursor: pointer; display: none; align-items: center; gap: 8px; border-radius: 0 var(--r) var(--r) 0; color: var(--ink); }
+body.left-closed:not(.view-fly) .tab { display: inline-flex; }
+/* cestino: appare mentre si trascina un punto */
+.trash { left: calc((var(--vl) + 100% - var(--vr)) / 2); transform: translateX(-50%); bottom: calc(var(--vb) + 14px); display: none; align-items: center; gap: 8px; padding: 0 16px; height: 48px; background: var(--panel); border: 2px dashed var(--crit); color: var(--crit); border-radius: var(--r); font-weight: 600; box-shadow: var(--shadow); pointer-events: none; }
+.trash.on { display: inline-flex; }
+.trash.hot { background: var(--crit); color: #fff; border-style: solid; }
+
+/* ---------------------------------------------------------------- pannelli sopra la carta */
+.panel { position: absolute; top: 0; bottom: 0; z-index: 10; background: var(--panel); display: flex; flex-direction: column; min-height: 0; box-shadow: var(--shadow); }
+.panel.left { left: 0; width: var(--lw); border-right: 1px solid var(--line); }
+.panel.right { right: 0; width: var(--rw); border-left: 1px solid var(--line); }
+body.left-closed .panel.left, body.view-fly .panel.left, body.right-closed .panel.right { display: none; }
+.phead { display: flex; align-items: center; gap: 8px; padding: 0 6px 0 12px; border-bottom: 1px solid var(--line); background: var(--panel-2); min-height: 40px; flex-shrink: 0; }
+.phead h2 { margin: 0; font-size: 14px; font-weight: 700; color: var(--ink); }
+.pbody { flex: 1; overflow-y: auto; padding: 0 0 16px; display: flex; flex-direction: column; min-height: 0; overscroll-behavior: contain; }
+.pbody > * { flex-shrink: 0; }
+.sec { padding: 10px 12px 12px; border-bottom: 1px solid var(--line); }
+.sh { display: flex; align-items: center; justify-content: space-between; font-size: 13px; font-weight: 700; color: var(--ink); margin: 0 0 8px; }
+.sh .note { font-weight: 400; }
+.xbtn { border: 0; background: transparent; color: var(--muted); width: 36px; height: 36px; cursor: pointer; display: grid; place-items: center; border-radius: 3px; }
+.xbtn:hover { background: var(--panel); color: var(--ink); }
+
+/* campi: etichetta sopra, valore sotto, griglia a due colonne */
+.fgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
+.f { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); font-weight: 600; min-width: 0; }
+.f.wide { grid-column: 1 / -1; }
+.f input, .f select, .fld { font-size: var(--fs); padding: 0 8px; height: var(--tap); width: 100%; min-width: 0; }
+.f input[type=checkbox] { width: 20px; height: 20px; box-shadow: none; }
+.f.chk { flex-direction: row; align-items: center; justify-content: space-between; font-size: 13px; color: var(--ink); font-weight: 500; padding: 4px 0; }
+.f input[type=range] { padding: 0; height: 28px; box-shadow: none; border: 0; background: transparent; }
+.dayinfo { font-size: 13px; color: var(--ink); margin-top: 8px; display: flex; gap: 6px; align-items: flex-start; flex-wrap: wrap; }
+.dayinfo > span:not(.sunl) { flex: 1 1 0; }
+.dayinfo .sunl { flex: 1 1 100%; padding-left: 22px; color: var(--muted, var(--ink)); }
+.dayinfo b { color: var(--accent); }
+.dayinfo svg.ic { width: 16px; height: 16px; color: var(--accent); margin-top: 1px; }
+
+/* rotta: barra dei comandi, ricerca, elenco dei punti come tabella */
+.rbar { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; }
+#findForm { margin-top: 8px; }
+#findForm input { width: 100%; height: var(--tap); padding: 0 10px; }
+#findList .hit { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--line); }
+#findList .hit small { color: var(--muted); display: block; }
+#wpList { display: flex; flex-direction: column; font-variant-numeric: tabular-nums; margin-top: 8px; border-top: 1px solid var(--line); }
+#wpList .th { display: grid; grid-template-columns: 26px 1fr 80px 32px; column-gap: 6px; font-size: 11px; color: var(--muted); font-weight: 600; padding: 4px 0 2px; }
+#wpList .wp { display: grid; grid-template-columns: 26px 1fr 80px 32px; grid-template-rows: auto auto; column-gap: 6px; row-gap: 2px; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--line); }
+#wpList .no { width: 22px; height: 22px; border-radius: 3px; border: 2px solid var(--route); display: grid; place-items: center; font-size: 11px; font-weight: 700; color: var(--ink); }
+#wpList .wp.end .no { background: var(--route); color: #fff; }
+#wpList input { height: 36px; padding: 0 7px; width: 100%; min-width: 0; font-size: var(--fs); }
+#wpList input.alt { text-align: right; }
+#wpList .x { height: 32px; width: 32px; border: 0; background: transparent; color: var(--muted); cursor: pointer; border-radius: 3px; display: grid; place-items: center; }
+#wpList .x:hover { background: var(--panel-2); color: var(--crit); }
+#wpList .meta { grid-column: 2 / 4; font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#wpList .meta b { color: var(--warn); font-weight: 700; }
+#wpList .leg { grid-column: 2 / 4; font-size: 11.5px; color: var(--route); font-weight: 700; }
+#wpList .ro { text-align: right; font-size: 12px; color: var(--muted); padding-right: 4px; }
+#wpList .meta { white-space: normal; }
+#wpList .meta input.gnd { display: inline-block; width: 68px; height: 30px; min-height: 30px; padding: 0 5px; font-size: 12.5px; vertical-align: middle; }
+#wpList .meta .u { margin-left: 3px; }
+#wpList .meta .air { white-space: nowrap; cursor: pointer; }
+#wpList .meta .air input { width: auto; height: auto; min-height: 0; vertical-align: middle; margin: 0 3px 0 0; }
+#wpList .mv { grid-column: 4; grid-row: 2; display: flex; flex-direction: column; gap: 2px; justify-self: center; }
+#wpList .mv button { width: 32px; height: 26px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 4px; display: grid; place-items: center; padding: 0; cursor: pointer; }
+#wpList .mv button:disabled { opacity: .3; cursor: default; }
+#wpList .mv .ic { width: 16px; height: 16px; }
+details.dsec { border-bottom: 1px solid var(--line); }
+details.dsec > summary { font-size: 13px; font-weight: 700; color: var(--ink); cursor: pointer; min-height: 40px; display: flex; align-items: center; gap: 6px; list-style: none; padding: 0 12px; }
+details.dsec > summary::-webkit-details-marker { display: none; }
+details.dsec > summary svg { transition: transform .12s; color: var(--muted); width: 16px; height: 16px; }
+details.dsec[open] > summary svg { transform: rotate(90deg); }
+details.dsec > .dbody { padding: 0 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+.drop { border: 1px dashed var(--muted); border-radius: var(--r); padding: 10px; text-align: center; color: var(--muted); cursor: pointer; font-size: 13px; }
+.drop.over { border-color: var(--accent); color: var(--accent); }
+.links { margin: 0; padding-left: 1.1em; display: grid; gap: 5px; font-size: .92em; }
+.links a, .lic a { color: var(--accent); font-weight: 600; }
+/* sostegno: in fondo alle impostazioni, piccolo e in tono minore */
+.support { margin: 14px 2px 6px; border-top: 1px solid var(--line); padding-top: 8px; }
+.support summary { list-style: none; cursor: pointer; font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; min-height: 32px; }
+.support summary::-webkit-details-marker { display: none; }
+.support summary:hover { color: var(--ink); }
+.support .sbody { padding: 4px 12px 2px 2px; font-size: 13px; line-height: 1.5; color: var(--ink); }
+.support .sbody p { margin: 0 0 8px; }
+.support .fine { font-size: 11.5px; color: var(--muted); margin-top: 8px !important; }
+.lic { font-size: 12px; color: var(--muted); margin: 0; padding-left: 1.1em; display: grid; gap: 3px; }
+
+/* avvisi: schede, riepilogo a tabella, righe con barra di colore a sinistra */
+.tabs { display: flex; align-items: stretch; border-bottom: 1px solid var(--line); background: var(--panel-2); flex-shrink: 0; min-height: 42px; }
+.tabs button[role=tab] { flex: 1 1 auto; white-space: nowrap; padding: 0 8px; background: transparent; border: 0; border-bottom: 3px solid transparent; font-weight: 600; color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.rpane { display: none; } .rpane.on { display: flex; flex-direction: column; }
+.sumtab { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.sumtab .head { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+.sumtab table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.sumtab td { padding: 2px 0; vertical-align: top; }
+.sumtab td:first-child { color: var(--muted); width: 38%; }
+.sumtab td:last-child { font-weight: 600; font-variant-numeric: tabular-nums; }
+#warnings { gap: 0; }
+.wgroup { font-size: 11.5px; font-weight: 700; color: var(--muted); padding: 8px 12px 4px; background: var(--panel-2); border-bottom: 1px solid var(--line); }
+.warn { position: relative; border-left: 4px solid var(--muted); padding: 7px 12px 7px 10px; border-bottom: 1px solid var(--line); cursor: pointer; font-size: .95em; background: var(--panel); }
+.warn:has(.loc) { padding-right: 52px; }
+.warn.crit { border-left-color: var(--crit); } .warn.warn { border-left-color: #d98a00; } .warn.ok { border-left-color: var(--ok); } .warn.info { border-left-color: var(--info); }
+.warn > b { display: block; font-weight: 700; line-height: 1.25; }
+.warn .wt { font-size: .92em; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.warn.open .wt { -webkit-line-clamp: unset; display: block; color: var(--ink); }
+.warn .loc { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); border: 1px solid var(--btn-line); background: linear-gradient(var(--btn), var(--btn-2)); border-radius: 3px; height: 32px; width: 36px; cursor: pointer; color: var(--accent); display: grid; place-items: center; }
+.box { padding: 8px 10px; border-radius: var(--r); background: var(--panel-2); border: 1px solid var(--line); }
+.box b { color: var(--accent); }
+.rpane > .col, .rpane > section { padding: 10px 12px; }
+#info dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin: 0; font-size: .92em; }
+#info dt { color: var(--muted); }
+#info dd { margin: 0; font-variant-numeric: tabular-nums; }
+#info h2 { font-size: 14px; margin: 0 0 8px; }
+.wxs { border-left: 4px solid var(--line); background: var(--panel-2); padding: 6px 10px; border-radius: 3px; display: grid; gap: 4px; }
+.wxs code { font: .8em/1.35 var(--mono); white-space: pre-wrap; word-break: break-word; }
+.wxs .old { color: var(--crit); font-weight: 700; }
+.wxs summary { cursor: pointer; color: var(--muted); font-size: .85em; }
+.nearest { display: none; font-variant-numeric: tabular-nums; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.nearest.on { display: block; }
+.nearest .row2 { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.nearest .row2:last-child { border-bottom: 0; }
+.nearest b.ok { color: var(--ok); } .nearest b.no { color: var(--crit); }
+.nearest .eh { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.nearest .sh { margin-top: 8px; }
+.emerg { border-left: 4px solid var(--crit); background: color-mix(in srgb, var(--crit) 7%, var(--panel)); }
+.emerg .eh b { color: var(--crit); font-size: 1.1em; letter-spacing: .02em; }
+.emerg .mayday { border: 1px solid var(--line); border-radius: var(--r); padding: 8px 10px; background: var(--panel); }
+.emerg .mayday .freq { font: 700 1.15em var(--font); font-variant-numeric: tabular-nums; }
+.emerg .mayday .say { margin-top: 4px; font-weight: 600; line-height: 1.35; }
+.timers .trow { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.timers .trow > span:first-child { flex: 1 1 120px; }
+.timers .trow strong { font: 700 1.2em var(--font); font-variant-numeric: tabular-nums; min-width: 70px; }
+.timers .trow select, .timers .trow input.fld { width: 76px; height: 34px; }
+.timers .chk { display: inline-flex; gap: 6px; align-items: center; font-size: .92em; }
+.checks .ckrow { display: flex; gap: 10px; align-items: center; padding: 8px 6px; border-bottom: 1px solid var(--line); font-size: 1.04em; border-left: 6px solid transparent; }
+.checks .ckrow input { width: 24px; height: 24px; flex: none; }
+.checks .ckrow .ckt { flex: 1; font-weight: 600; }
+.checks .ckrow .ckv { font-weight: 800; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.checks .ckrow.done .ckt, .checks .ckrow.done .ckv { color: var(--muted); text-decoration: line-through; }
+/* colori delle righe come nel documento dell'aeroclub (giorno: tinta della riga; temi scuri: barra a sinistra) */
+.checks .c-r { border-left-color: #f2876d; background: #fde2d8; } .checks .c-y { border-left-color: #e0c000; background: #ffff80; }
+.checks .c-g { border-left-color: #6fbf55; background: #dcf5cc; } .checks .c-b { border-left-color: #7aa3d6; background: #dde8f7; }
+body.theme-night .checks .c-r, body.theme-night .checks .c-y, body.theme-night .checks .c-g, body.theme-night .checks .c-b { background: transparent; }
+body.theme-night .checks .c-r { border-left-color: #ff7d66; } body.theme-night .checks .c-y { border-left-color: #ffe03a; }
+body.theme-night .checks .c-g { border-left-color: #7fe07a; } body.theme-night .checks .c-b { border-left-color: #7fb6ff; }
+.checks .ckrow.done { background: transparent; }
+.checks .ckh { padding: 8px 6px 4px; font-weight: 800; font-size: .92em; letter-spacing: .03em; color: var(--muted); border-left: 6px solid transparent; }
+.checks .ckalert { margin: 10px 0 6px; border: 2px solid var(--crit); border-radius: var(--r); padding: 8px 10px; text-align: center; }
+.checks .ckalert b { display: block; color: var(--crit); font-size: 1.3em; letter-spacing: .03em; }
+.checks .ckalert small { display: block; font-weight: 700; margin-top: 2px; }
+.checks .cksrc { margin: 4px 0; font-size: .85em; color: var(--muted); }
+.checks .cklist { flex: 1 1 auto; min-height: 120px; overflow-y: auto; overscroll-behavior: contain; }
+/* liste: finestra propria, aperta da qualunque schermata (tasto «Liste» in alto o nella striscia del volo) */
+.checks.on { position: fixed; z-index: 56; top: 58px; right: 10px; bottom: 10px; width: min(500px, calc(100vw - 20px)); display: flex; flex-direction: column; gap: 4px;
+  background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); padding: 10px 12px; overflow: hidden; }
+.checks .row { flex: 0 0 auto; } .checks .ckac { display: flex; gap: 8px; align-items: center; } .checks .ckac select { flex: 1; }
+.checks .ckfoot { margin-top: 8px; border: 1px solid var(--line); border-radius: var(--r); padding: 8px 10px; text-align: center; }
+.checks .ckfoot b, .checks .ckfoot span { display: block; } .checks .ckfoot span { font-weight: 700; font-variant-numeric: tabular-nums; }
+.checks .ckref { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.checks .ckref td { padding: 6px; border-bottom: 1px solid var(--line); } .checks .ckref td + td { text-align: right; font-weight: 800; white-space: nowrap; }
+.checks .ckdoubt { margin: 2px 0 6px; padding: 5px 8px; border-left: 4px solid var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); font-size: .85em; line-height: 1.35; }
+.checks .ckref tr.doubt td + td { color: var(--warn); }
+.checks .ckcount { font-weight: 800; font-variant-numeric: tabular-nums; } .checks .ckcount.ok { color: var(--ok); }
+.trafficalert { left: calc(var(--vl) + 10px); top: 180px; right: calc(var(--vr) + 64px); width: fit-content; display: none; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-start;
+  background: #b91c1c; color: #fff; padding: 8px 12px; border-radius: var(--r); box-shadow: var(--shadow); font: 700 1.1em var(--font); z-index: 30; }
+.trafficalert .btn { min-height: 34px; }
+.updbanner { position: fixed; z-index: 60; left: 50%; transform: translateX(-50%); top: 64px; width: min(560px, calc(100vw - 24px)); display: none;
+  background: var(--panel); color: var(--ink); border: 2px solid var(--accent); border-radius: var(--r); box-shadow: var(--shadow); padding: 10px 12px; }
+.updbanner.on { display: block; }
+.barbtn.listbtn { width: auto; padding: 0 12px; gap: 6px; display: inline-flex; align-items: center; font-weight: 600; } .barbtn.listbtn.on { outline: 2px solid var(--accent); }
+.guide { position: fixed; inset: 40px max(12px, calc(50vw - 460px)) 12px; z-index: 70; display: none; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); overflow: hidden; }
+.guide.on { display: flex; } .guide iframe { flex: 1; border: 0; width: 100%; background: var(--panel); }
+.updbanner b { font-size: 1.08em; } .updbanner ul { margin: 6px 0; padding-left: 18px; font-size: .92em; }
+.updbanner .row { margin-top: 6px; } .updbanner .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 6px; }
+.updbanner .bar i { display: block; height: 100%; background: var(--accent); width: 0; }
+.logt { width: 100%; border-collapse: collapse; font-size: .9em; font-variant-numeric: tabular-nums; margin: 4px 0 8px; }
+.logt th, .logt td { text-align: left; padding: 3px 4px; border-bottom: 1px solid var(--line); }
+.flybar .btn.sos { background: var(--crit); color: #fff; border-color: var(--crit); font-weight: 700; }
+.flybar .btn.sos.on { outline: 3px solid #fff; outline-offset: -6px; }
+.flybar .btn .ic { margin-right: 4px; }
+.flybar .btn.on:not(.sos):not(.primary) { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.instruments button { all: unset; box-sizing: border-box; background: var(--bar); color: var(--bar-ink); padding: 4px 10px; min-height: 56px; cursor: pointer; overflow: hidden; }
+.instruments button:active { background: var(--bar-line); }
+.instruments .crit strong { color: #ff7d8e; }
+.instmenu { display: none; z-index: 30; width: min(560px, 92%); background: var(--panel); color: var(--ink); border: 1px solid var(--btn-line); border-radius: var(--r); box-shadow: var(--shadow); padding: 10px; }
+.instmenu .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 4px; margin: 8px 0; }
+.instmenu .grid button { min-height: 40px; text-align: left; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); color: var(--ink); font: inherit; cursor: pointer; }
+.instmenu .grid button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+
+/* profilo verticale in basso, tra i pannelli */
+#profileWrap { position: absolute; z-index: 8; left: var(--vl); right: var(--vr); bottom: 0; height: var(--pb); background: var(--panel); border-top: 1px solid var(--line); }
+#profile { width: 100%; height: 100%; display: block; touch-action: none; }
+.ptoggle { position: absolute; right: 6px; top: 4px; z-index: 2; border: 1px solid var(--btn-line); background: linear-gradient(var(--btn), var(--btn-2)); border-radius: 3px; height: 22px; padding: 0 8px; font-size: 11.5px; font-weight: 600; color: var(--muted); cursor: pointer; }
+body.prof-closed #profile { visibility: hidden; }
+
+/* colonna d'aria (pressione lunga sulla carta) */
+.whats { display: none; width: 360px; max-height: 76%; overflow-y: auto; background: var(--panel); border: 1px solid var(--btn-line); border-radius: var(--r); box-shadow: var(--shadow); font-size: 13px; z-index: 25; }
+.whats .wh-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 4px 0 10px; min-height: 36px; background: var(--panel-2); border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.whats .wh-h small { color: var(--muted); font-weight: 500; }
+.whats .wh-b { display: grid; grid-template-columns: 120px 1fr; gap: 10px; padding: 10px; }
+.whats canvas { width: 120px; height: 240px; border: 1px solid var(--line); background: var(--panel-2); border-radius: 3px; }
+.whats .wh-row { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.whats .wh-row span { color: var(--muted); }
+.whats .wh-s { font-size: 11.5px; font-weight: 700; color: var(--muted); margin: 8px 0 3px; }
+.whats .wh-air { border-left: 4px solid var(--line); padding: 2px 6px; margin: 3px 0; display: grid; font-size: 12px; background: var(--panel-2); }
+.whats .wh-air span { color: var(--muted); font-variant-numeric: tabular-nums; }
+.whats .wh-act { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 10px 10px; }
+.whats .note { padding: 0 10px 10px; font-size: 11.5px; }
+
+/* impostazioni: foglio a destra sopra tutto */
+.sheet { position: absolute; z-index: 40; top: var(--head); right: 0; bottom: 0; width: min(380px, 100%); background: var(--panel); box-shadow: var(--shadow); display: none; flex-direction: column; border-left: 1px solid var(--line); }
+body.settings-open .sheet { display: flex; }
+#chips { display: flex; flex-direction: column; gap: 4px; }
+.chip { border-left: 3px solid var(--line); padding: 2px 8px; font-size: 12.5px; color: var(--muted); }
+.chip.demo { border-color: var(--crit); color: var(--crit); }
+.chip.real { border-color: var(--ok); color: var(--ink); }
+
+/* ---------------------------------------------------------------- volo */
+.instruments { left: var(--vl); right: var(--vr); top: 0; display: none; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 1px; background: var(--bar-line); container-type: inline-size; }
+@media (max-width: 760px) { .instruments { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.instruments div { background: var(--bar); color: var(--bar-ink); padding: 4px 10px; min-height: 56px; }
+.instruments small { display: block; color: var(--bar-muted); font-size: 10.5px; font-weight: 600; letter-spacing: .05em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.instruments strong { display: block; font: 700 clamp(15px, 2.15cqi, 30px)/1.1 var(--font); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 760px) { .instruments strong { font-size: clamp(15px, 4.3cqi, 30px); } }
+.instruments .crit strong { color: #ff7d8e; }
+/* comandi del volo: una sola riga in una striscia sotto la carta (sopra il profilo), non sopra la carta */
+.flybar { left: var(--vl); right: var(--vr); bottom: var(--pb); height: var(--fbh); display: none; gap: 6px; flex-wrap: nowrap; align-items: center;
+  padding: 0 8px; background: var(--panel); border-top: 1px solid var(--line); overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; z-index: 9; }
+.flybar .btn { flex: 1 0 auto; min-height: 46px; height: 46px; padding: 0 10px; font-size: .92em; white-space: nowrap; box-shadow: none; }
+.flybar label.btn { flex: 0 0 auto; }
+.alertbig { left: 50%; transform: translateX(-50%); top: 72px; max-width: 70%; display: none; background: var(--crit); color: #fff; padding: 10px 18px; border-radius: var(--r); font: 700 1.25em/1.2 var(--font); text-align: center; box-shadow: var(--shadow); }
+
+/* ---------------------------------------------------------------- radio e piano di volo: al posto della carta */
+.cards { position: absolute; z-index: 9; top: 0; bottom: 0; left: var(--vl); right: var(--vr); background: var(--bg); overflow-y: auto; padding: 12px 16px; display: none; flex-direction: column; gap: 12px; }
+.card { border: 1px solid var(--line); border-radius: var(--r); padding: 10px 14px; background: var(--panel); }
+.card.danger { border-color: var(--crit); border-left-width: 4px; }
+.card h3 { margin: 0 0 4px; font-size: 1.12em; font-weight: 700; }
+.card .freq { font-size: 1.4em; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+.line { display: grid; grid-template-columns: 5em 1fr; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); }
+.line .who { font-weight: 700; color: var(--muted); font-size: .8em; padding-top: 2px; }
+.line.pilota .who { color: var(--accent); }
+.line .say { font-size: 1.04em; }
+.line.example .say { font-style: italic; color: var(--muted); }
+.card .fonte { margin: 8px 0 0; font-size: .78em; color: var(--muted); border-top: 1px solid var(--line); padding-top: 6px; }
+.card dl.spell { display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px; margin: 6px 0 0; }
+.card dl.spell dt { color: var(--muted); font-size: .86em; }
+.card dl.spell dd { margin: 0; font-weight: 600; letter-spacing: .02em; }
+
+/* visibilità per vista e modalità */
+body.mode-beginner .expert-only { display: none !important; }
+body.mode-expert .beginner-only { display: none !important; }
+body.view-fly .plan-only { display: none !important; }
+body.view-fly .instruments { display: grid; }
+body.view-fly .flybar { display: flex; }
+body.view-fly .hint, body.view-fly .legend { display: none; }
+body.view-fly .mapctl { top: 66px; }
+body.view-radio .cards#cards { display: flex; }
+body.view-navlog .cards.navlog { display: flex; }
+body.view-radio #profileWrap, body.view-navlog #profileWrap, body.view-radio .mapctl, body.view-navlog .mapctl, body.view-radio .legend, body.view-navlog .legend, body.view-radio .hint, body.view-navlog .hint { display: none; }
+body:not(.view-radio) .radio-only { display: none !important; }
+.navlog > * { flex-shrink: 0; }
+.nl-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+.nl-head h2 { margin: 0; font-size: 1.25em; font-weight: 700; color: var(--ink); }
+.nl-onboard { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 10px 0 6px; padding: 8px 10px; border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: var(--r); }
+.nl-onboard label { display: inline-flex; align-items: center; gap: 8px; font-size: 1.02em; }
+.nl-box { border: 1px solid var(--line); border-radius: var(--r); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; background: var(--panel); }
+.nl-box h3 { margin: 0; font-size: 14px; font-weight: 700; color: var(--ink); }
+.nl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px 12px; align-items: end; }
+.nl-grid label { display: flex; flex-direction: column; gap: 3px; font-size: .85em; color: var(--muted); }
+.nl-box input, .nl-box select { min-height: 38px; padding: 0 8px; font: inherit; font-size: 1rem; }
+.nl-box input.sm { width: 6em; } .nl-box input.xs { width: 4em; min-height: 32px; margin: 2px 2px 0 0; }
+.nl-table { border-collapse: collapse; width: 100%; font-size: .85em; }
+.nl-table th, .nl-table td { border: 1px solid var(--line); padding: 4px 6px; vertical-align: top; text-align: left; }
+.nl-table th { background: var(--panel-2); font-weight: 700; }
+.nl-table small { color: var(--muted); }
+.nl-wide { overflow-x: auto; }
+.crit-t { color: var(--crit); }
+#printForm { display: none; }
+@media print {
+  @page { size: A4; margin: 10mm; }
+  html, body { background: #fff !important; overflow: visible; height: auto; }
+  body > *:not(#printForm) { display: none !important; }
+  .pf-demo { color: #c8102e; font: 700 11pt Arial, sans-serif; border: 2px solid #c8102e; padding: 2mm; margin-bottom: 3mm; }
+  #printForm { display: block !important; color: #000; font: 10pt Arial, sans-serif; }
+  .pf-page { page-break-after: always; }
+  .pf { width: 100%; border-collapse: collapse; margin-bottom: 6mm; }
+  .pf td, .pf th { border: 1px solid #000; padding: 2mm; vertical-align: top; font-size: 9pt; }
+  .pf.log td { height: 17mm; text-align: center; }
+  .pf hr { border: 0; border-top: 1px solid #000; margin: 1mm 0; }
+  .pf .wp .lv { border: 1px solid #000; margin: 1mm 0; min-height: 5mm; }
+  .pf-note, .pf-checks { font-size: 8pt; }
+}
+/* schermi stretti (telefono, tablet in verticale): pannelli a tutta larghezza sopra la carta, chiusi all'avvio */
+@media (max-width: 900px) {
+  :root { --lw: min(340px, 100vw); --rw: min(360px, 100vw); }
+  .main { --vl: 0px !important; --vr: 0px !important; }
+  .views button { padding: 0 9px; }
+  .proto { display: none; }
+  .strip .c.opt { display: none; }
+}
+@media (max-width: 640px) { header .brand small, header .brand .by { display: none; } .views button { font-size: .85em; padding: 0 7px; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+<script src="./geotiff.js"></script>
+<script type="importmap">{ "imports": { "three": "./three.module.min.js" } }</script>
+</head>
+<body class="mode-beginner theme-day view-plan">
+<!-- Icone disegnate per AerIA VFR (© 2026 fringuello79, Avezzano): tratti semplici su griglia 24 × 24 -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/><circle cx="12" cy="12" r="6.5"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></symbol>
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="M14 6l-6 6 6 6"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="M10 6l6 6-6 6"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M9 5L4 10l5 5"/><path d="M4 10h10a5 5 0 0 1 0 10h-3"/></symbol>
+  <symbol id="i-bin" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></symbol>
+  <symbol id="i-fit" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/><path d="M8 15l3-5 2 3 3-4"/></symbol>
+  <symbol id="i-north" viewBox="0 0 24 24"><path d="M12 2.5l4.2 9.5H7.8z" fill="#c8102e" stroke="none"/><path d="M12 21.5l4.2-9.5H7.8z" fill="currentColor" stroke="none" opacity=".4"/></symbol>
+  <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="1.5"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-6-6.2-6-11a6 6 0 0 1 12 0c0 4.8-6 11-6 11z"/><circle cx="12" cy="10" r="2"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+  <symbol id="i-ridge" viewBox="0 0 24 24"><path d="M2 19l6-9 4 5 3-4 7 8z"/><path d="M2 8h20" stroke-dasharray="2 2"/></symbol>
+  <symbol id="i-timer" viewBox="0 0 24 24"><circle cx="12" cy="13" r="7.5"/><path d="M12 13V9M10 2.5h4M18.5 6.5l1.3-1.3"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+</svg>
+<div class="app">
+  <header>
+    <div class="brand"><img src="./icona.png" alt="" width="30" height="30"><span class="bn"><span class="bt"><span>Aer<b>IA</b></span><small>VFR</small></span><span class="by">by fringuello79</span></span></div>
+    <nav class="views" role="group" aria-label="Che cosa vuoi fare">
+      <button type="button" data-view="plan" aria-pressed="true">Pianifica</button>
+      <button type="button" data-view="fly" aria-pressed="false">Volo</button>
+      <button type="button" data-view="radio" aria-pressed="false">Radio</button>
+      <button type="button" data-view="navlog" aria-pressed="false">Piano di volo</button>
+    </nav>
+    <button type="button" class="strip" id="bubble" title="Distanza, tempo, carburante e avvisi della rotta: tocca per aprire gli avvisi"><span class="c"><small>ROTTA</small><span>—</span></span></button>
+    <div class="spacer"></div>
+    <div class="proto" id="banner">Prototipo: non usare per la navigazione</div>
+    <button class="barbtn listbtn" type="button" id="checkTop" title="Liste di controllo dell'aereo"><svg class="ic"><use href="#i-list"/></svg><span>Liste</span></button>
+    <button class="barbtn" type="button" id="settingsBtn" aria-label="Impostazioni" title="Impostazioni"><svg class="ic"><use href="#i-gear"/></svg></button>
+  </header>
+
+  <div class="main">
+    <div id="view" aria-label="Carta 3D di terreno e spazi aerei">
+      <div class="overlay instruments" id="instruments" aria-live="off"></div>
+      <div class="overlay alertbig" id="alertbig" role="alert"></div>
+      <div class="overlay instmenu" id="instMenu" role="menu" aria-label="Scegli il dato della casella"></div>
+      <div class="overlay whats" id="whats" role="dialog" aria-label="Colonna d'aria"></div>
+      <div class="overlay legend" id="legend"></div>
+      <div class="overlay scalebar" id="scalebar" aria-hidden="true"><i></i><span></span></div>
+      <div class="overlay hint" id="hint">Trascina per ruotare · pizzica per lo zoom · tocca uno spazio aereo per i dettagli</div>
+      <div class="overlay trash" id="trash"><svg class="ic"><use href="#i-bin"/></svg>Lascia qui per togliere il punto</div>
+      <div class="overlay mapctl" aria-label="Comandi della carta">
+        <div class="grp">
+          <button type="button" id="zoomIn" aria-label="Avvicina" title="Avvicina"><svg class="ic"><use href="#i-plus"/></svg></button>
+          <button type="button" id="zoomOut" aria-label="Allontana" title="Allontana"><svg class="ic"><use href="#i-minus"/></svg></button>
+        </div>
+        <div class="grp">
+          <button type="button" data-dim="3d" aria-pressed="true" title="Carta 3D">3D</button>
+          <button type="button" data-dim="2d" aria-pressed="false" title="Carta 2D, nord in alto">2D</button>
+        </div>
+        <div class="grp">
+          <button type="button" id="fitBtn" aria-label="Inquadra la rotta" title="Inquadra la rotta"><svg class="ic"><use href="#i-fit"/></svg></button>
+          <button type="button" id="northBtn" aria-label="Nord in alto" title="Nord in alto"><svg class="ic"><use href="#i-north"/></svg></button>
+          <button type="button" id="recenterBtn" class="fly-only" aria-pressed="true" aria-label="Segui l'aereo: carta centrata sull'aereo e orientata sulla prua" title="Segui l'aereo (prua in alto)"><svg class="ic"><use href="#i-target"/></svg></button>
+        </div>
+        <div class="grp plan-only">
+          <button type="button" id="mapUndo" aria-label="Annulla l'ultima modifica della rotta" title="Niente da annullare" disabled><svg class="ic"><use href="#i-back"/></svg></button>
+          <button type="button" id="ridgeBtn" aria-pressed="false" aria-label="Rilievo vicino alla quota di crociera" title="Rilievo vicino alla quota di crociera: rosso entro 100 ft o sopra, giallo entro 1000 ft"><svg class="ic"><use href="#i-ridge"/></svg></button>
+        </div>
+      </div>
+      <button type="button" class="overlay tab" id="openLeft"><svg class="ic"><use href="#i-list"/></svg>Rotta</button>
+      <div class="overlay trafficalert" id="trafficAlert" role="alert"><span data-txt></span>
+        <button type="button" class="btn" data-ta="show">Mostra</button><button type="button" class="btn" data-ta="mute">Sospendi 5 min</button><button type="button" class="btn" data-ta="close">Chiudi</button></div>
+      <div class="overlay flybar">
+        <button class="btn sos" id="emergBtn" type="button">Emergenza</button>
+        <button class="btn primary" id="gpsBtn" type="button">Avvia GPS</button>
+        <button class="btn" id="simBtn" type="button">Simula</button>
+        <button class="btn" id="voiceBtn" type="button" aria-pressed="false">Voce</button>
+        <button class="btn" id="nearBtn" type="button" aria-pressed="false" title="Campi vicini">Campi</button>
+        <button class="btn" id="timerBtn" type="button"><svg class="ic"><use href="#i-timer"/></svg>Tempi</button>
+        <button class="btn" id="checkBtn" type="button">Liste</button>
+        <button class="btn" id="trailBtn" type="button" aria-pressed="true" title="Scia dell'aereo sulla carta">Scia</button>
+        <button class="btn" id="reviewBtn" type="button" title="Rivedi il volo">Rivedi</button>
+        <button class="btn" id="trackBtn" type="button" title="Salva la traccia del volo (GPX)">GPX</button>
+        <label class="btn expert-only" style="display:flex;align-items:center;gap:8px">Velocità
+          <select id="simSpeed" class="fld" style="height:34px;width:auto"><option value="1">1×</option><option value="4" selected>4×</option><option value="16">16×</option></select></label>
+      </div>
+    </div>
+
+    <aside class="panel left" aria-label="Volo e rotta">
+      <div class="phead"><h2>Volo e rotta</h2><div class="spacer"></div><button class="xbtn" type="button" id="closeLeft" aria-label="Chiudi il pannello" title="Chiudi il pannello"><svg class="ic"><use href="#i-left"/></svg></button></div>
+      <div class="pbody">
+        <section class="sec">
+          <div class="sh">Volo</div>
+          <div class="fgrid">
+            <label class="f">Data <input type="date" id="date"></label>
+            <label class="f">Apparecchio
+              <select id="pilot"><option value="basico">VDS</option><option value="avanzato">VDS avanz.</option><option value="ag">PPL / LAPL</option></select>
+            </label>
+            <label class="f">Crociera (ft) <input type="number" id="cruise" value="3500" step="100" min="0" inputmode="numeric"></label>
+            <label class="f">QNH (hPa) <input type="number" id="qnh" value="1013" step="1" min="940" max="1060" inputmode="numeric"></label>
+            <label class="f wide">Limite VDS
+              <select id="dayOverride"><option value="auto">1000 ft sul rilievo (RAIT.5005 d)2)i)</option><option value="z500">500 ft: zona VDS con limite di 500 ft</option></select>
+            </label>
+          </div>
+          <div class="dayinfo" id="daytype"></div>
+        </section>
+
+        <section class="sec">
+          <div class="sh">Rotta</div>
+          <div class="rbar">
+            <button class="btn primary" id="addMode" type="button" aria-pressed="false"></button>
+            <button class="btn icon" id="undoWp" type="button" aria-label="Annulla l'ultima modifica della rotta" title="Niente da annullare" disabled><svg class="ic"><use href="#i-back"/></svg></button>
+            <button class="btn icon danger" id="clearWp" type="button" aria-label="Cancella la rotta" title="Cancella la rotta"><svg class="ic"><use href="#i-bin"/></svg></button>
+          </div>
+          <p class="note beginner-only" id="routeHint" style="margin-top:6px">Tocca «Aggiungi punti» e poi la carta, oppure cerca un campo, un punto o una località.</p>
+          <form id="findForm" role="search">
+            <input type="search" id="findQ" placeholder="Cerca campo, punto, località" aria-label="Cerca campo, punto di riporto, radioassistenza, località o vetta" autocomplete="off">
+          </form>
+          <div id="findList" class="col"></div>
+          <div id="wpList"></div>
+        </section>
+
+        <details class="dsec">
+          <summary><svg class="ic"><use href="#i-chev"/></svg>Pilota e aereo</summary>
+          <div class="dbody">
+            <div class="fgrid">
+              <label class="f">Nominativo <input type="text" id="callsign" value="I-XXXX" autocomplete="off" spellcheck="false"></label>
+              <label class="f">Tipo di aereo <input type="text" id="acType" placeholder="Tecnam P92" autocomplete="off"></label>
+              <label class="f wide">Margine di planata
+                <select id="glideMargin"><option value="0">nessuno (efficienza del manuale)</option><option value="10">10 %</option><option value="20">20 %</option><option value="30">30 %</option><option value="40">40 %</option></select></label>
+            </div>
+            <p class="note">Nominativo e tipo servono per le chiamate radio e il messaggio di soccorso. Il margine riduce l’efficienza di planata usata per l’area raggiungibile e i campi in emergenza.</p>
+            <div class="sh" style="margin-top:10px">I tuoi minimi meteo</div>
+            <div class="fgrid">
+              <label class="f">Base nubi min (ft) <input type="number" id="minCeil" step="100" min="0" inputmode="numeric"></label>
+              <label class="f">Visibilità min (km) <input type="number" id="minVis" step="1" min="0" inputmode="decimal"></label>
+              <label class="f">Vento max (kt) <input type="number" id="minWind" step="1" min="0" inputmode="numeric"></label>
+              <label class="f">Raffiche max (kt) <input type="number" id="minGust" step="1" min="0" inputmode="numeric"></label>
+              <label class="f">Traverso max (kt) <input type="number" id="minXwind" step="1" min="0" inputmode="numeric" placeholder="dell’aereo"></label>
+              <label class="f chk">Controlla i minimi <input type="checkbox" id="minOn"></label>
+            </div>
+            <p class="note">Confronto con METAR e TAF di partenza e arrivo (scheda «Meteo»), all’ora di decollo del piano di volo o adesso. I valori iniziali sono proposte: metti i tuoi. Traverso vuoto: quello dimostrato dell’aereo.</p>
+          </div>
+        </details>
+      </div>
+    </aside>
+
+    <div class="cards" id="cards" aria-label="Chiamate radio"></div>
+    <div class="cards navlog" id="navlog" aria-label="Piano di volo"></div>
+
+    <div id="profileWrap"><canvas id="profile" aria-label="Profilo verticale"></canvas><button type="button" class="ptoggle" id="profToggle">Profilo ▾</button></div>
+
+    <aside class="panel right" aria-label="Avvisi">
+      <div class="tabs" role="tablist">
+        <button type="button" role="tab" data-rtab="warn" aria-selected="true">Avvisi <span id="warnCount"></span></button>
+        <button type="button" role="tab" data-rtab="wx" aria-selected="false" class="plan-only">Meteo</button>
+        <button type="button" role="tab" data-rtab="info" aria-selected="false" class="plan-only">Spazio</button>
+        <button class="xbtn" type="button" id="closeRight" aria-label="Chiudi il pannello" title="Chiudi il pannello" style="align-self:center"><svg class="ic"><use href="#i-right"/></svg></button>
+      </div>
+      <div class="pbody">
+        <section class="nearest emerg" id="emerg" aria-live="off"></section>
+        <section class="nearest timers" id="timers" aria-live="off"></section>
+        <section class="nearest timers review" id="review" aria-live="off"></section>
+        <section class="nearest" id="nearest" aria-live="off"></section>
+        <div class="rpane on" data-rpane="warn">
+          <div id="summary"></div>
+          <div id="warnings" class="col"></div>
+        </div>
+        <div class="rpane" data-rpane="wx"><div id="wx" class="col"></div></div>
+        <div class="rpane" data-rpane="info"><section id="info"></section></div>
+      </div>
+    </aside>
+  </div>
+
+  <aside class="sheet" id="settings" aria-label="Impostazioni">
+    <div class="phead"><h2>Impostazioni</h2><div class="spacer"></div><button class="xbtn" type="button" id="closeSettings" aria-label="Chiudi"><svg class="ic"><use href="#i-close"/></svg></button></div>
+    <div class="pbody">
+      <section class="sec">
+        <div class="sh">Livello di dettaglio</div>
+        <div class="seg" role="group" aria-label="Livello di dettaglio" style="display:flex">
+          <button type="button" data-mode="beginner" aria-pressed="true" style="flex:1">Principiante</button>
+          <button type="button" data-mode="expert" aria-pressed="false" style="flex:1">Esperto</button>
+        </div>
+        <p class="note" style="margin-top:6px">Principiante: testi grandi, spiegazioni semplici, solo ciò che conta alla tua quota. Esperto: più dati e comandi.</p>
+      </section>
+      <section class="sec">
+        <button class="btn" type="button" id="guideBtn" style="width:100%">Guida all’uso (anche senza rete)</button>
+      </section>
+      <section class="sec">
+        <div class="sh">Aspetto</div>
+        <div class="seg" role="group" aria-label="Tema" id="themeSeg" style="display:flex">
+          <button type="button" data-theme="day" aria-pressed="true" style="flex:1">Giorno</button>
+          <button type="button" data-theme="night" aria-pressed="false" style="flex:1">Notte</button>
+          <button type="button" data-theme="cockpit" aria-pressed="false" style="flex:1">Cabina</button>
+        </div>
+        <p class="note" style="margin-top:6px">Cabina: fondi scuri e finestre definite, nello stile degli strumenti di navigazione di bordo.</p>
+      </section>
+      <details class="dsec" open>
+        <summary><svg class="ic"><use href="#i-chev"/></svg>Carta</summary>
+        <div class="dbody">
+          <label class="f">Esagerazione verticale <input type="range" id="exag" min="1" max="6" step="0.5" value="2.5"></label>
+          <label class="f">Qualità grafica
+            <select id="qualSel"><option value="auto">Automatica (consigliata)</option><option value="alta">Alta</option><option value="media">Media</option><option value="bassa">Bassa: dispositivi vecchi</option></select></label>
+          <p class="note" id="qualStatus"></p>
+          <label class="f">Mostra spazi aerei fino a <select id="ceiling"></select></label>
+          <p class="note">Gli spazi più alti si nascondono (anche dalla legenda sulla carta) ma restano nei controlli della rotta.</p>
+          <label class="f chk expert-only">Settori FIR, FIS, ACC <input type="checkbox" id="showFir"></label>
+          <label class="f chk expert-only">Nomi di tutti gli spazi aerei <input type="checkbox" id="showLabels"></label>
+          <p class="note">I nomi degli spazi attraversati dalla rotta si vedono sempre.</p>
+        </div>
+      </details>
+      <details class="dsec">
+        <summary><svg class="ic"><use href="#i-chev"/></svg>Strumenti esterni</summary>
+        <div class="dbody">
+          <p class="note">GPS, altimetri, bussole e FLARM che trasmettono frasi NMEA (per esempio $GPRMC, $GPGGA, $PGRMZ, $HCHDM). L’altitudine barometrica dello strumento, corretta con il QNH, ha la precedenza su quella del GPS.</p>
+          <div class="row">
+            <button class="btn" id="bleBtn" type="button">Bluetooth</button>
+            <button class="btn" id="usbBtn" type="button">USB</button>
+            <button class="btn expert-only" id="devDemoBtn" type="button">Prova con dati simulati</button>
+          </div>
+          <label class="f">Traffico mostrato sulla carta
+            <select id="trafficBand"><option value="1000">± 1000 ft</option><option value="2000">± 2000 ft</option><option value="3000">± 3000 ft</option><option value="100000">tutto</option></select></label>
+          <p class="note">FLARM ($PFLAA, $PFLAU): il traffico compare con la quota relativa in centinaia di piedi; l’allarme dello strumento apre una finestra e, con la voce accesa, si ascolta. Guarda sempre fuori: non tutto il traffico trasmette.</p>
+          <div id="devStatus" class="col"></div>
+        </div>
+      </details>
+      <details class="dsec">
+        <summary><svg class="ic"><use href="#i-chev"/></svg>Informazioni ufficiali</summary>
+        <div class="dbody">
+          <p class="note">Serve la connessione. Si aprono i siti degli enti: la fonte valida per il volo sono loro, non questo programma.</p>
+          <ul class="links">
+            <li><a href="https://selfbriefing.enav.it/" target="_blank" rel="noopener">ENAV Self Briefing</a> — NOTAM, bollettini, piano di volo</li>
+            <li><a href="https://www.enav.it/en/node/118" target="_blank" rel="noopener">ENAV servizi online</a> — AIP Italia e pubblicazioni</li>
+            <li><a href="https://www.meteoam.it/it/metar-taf" target="_blank" rel="noopener">Aeronautica Militare</a> — METAR, TAF, carte meteo</li>
+            <li><a href="https://www.public.nm.eurocontrol.int/PUBPORTAL/gateway/spec/index.html" target="_blank" rel="noopener">EUROCONTROL</a> — attivazione delle zone (AUP/UUP)</li>
+            <li><a href="https://aviationweather.gov/" target="_blank" rel="noopener">Aviation Weather Center</a> — fonte del meteo nel programma</li>
+            <li><a href="https://www.openaip.net/" target="_blank" rel="noopener">openAIP</a> — fonte degli spazi aerei nel programma</li>
+          </ul>
+          <form id="offSearch" class="row" role="search">
+            <input type="search" id="offQ" class="fld" placeholder="Cerca su ENAV ed ENAC" aria-label="Cerca su ENAV ed ENAC" style="flex:1;height:var(--tap);padding:0 8px">
+            <button class="btn" type="submit">Cerca</button>
+          </form>
+        </div>
+      </details>
+      <details class="dsec" open>
+        <summary><svg class="ic"><use href="#i-chev"/></svg>Dati</summary>
+        <div class="dbody">
+          <div id="chips"></div>
+          <div class="drop" id="drop" tabindex="0" role="button" aria-label="Carica file di dati">Trascina qui o tocca per caricare altri dati<br><span class="note">terreno .tif o .hgt · spazi aerei .geojson o OpenAir .txt</span></div>
+          <input type="file" id="file" multiple accept=".hgt,.tif,.tiff,.geojson,.json,.txt,.openair" hidden>
+          <div class="row expert-only">
+            <button class="btn" id="packBtn" type="button">Ricarica il pacchetto dati</button>
+            <button class="btn" id="demoBtn" type="button">Scena dimostrativa</button>
+          </div>
+          <p class="attrib" id="attrib"></p>
+        </div>
+      </details>
+      <details class="dsec" id="updSec">
+        <summary><svg class="ic"><use href="#i-chev"/></svg>Aggiornamenti e uso senza rete</summary>
+        <div class="dbody">
+          <p class="note" id="updStatus">Aggiornamenti: non ancora controllati.</p>
+          <label class="f chk">Cerca nuove versioni all’avvio <input type="checkbox" id="updAuto" checked></label>
+          <div class="row"><button class="btn" id="updCheck" type="button">Controlla ora</button></div>
+          <p class="note">Con la rete e a terra, l’app controlla all’avvio e ogni 6 ore se è uscita una nuova versione. La scarica, ne verifica l’impronta e la installa Android, sempre con la tua conferma; piani, profili e liste restano. In volo non controlla e non disturba.</p>
+          <div class="sh" style="margin:6px 0 0">Senza rete</div>
+          <div id="offlineStatus" class="note"></div>
+        </div>
+      </details>
+      <details class="dsec">
+        <summary><svg class="ic"><use href="#i-chev"/></svg>Informazioni e licenze</summary>
+        <div class="dbody">
+          <p class="note">AerIA VFR <span id="aboutVer"></span> · by fringuello79. Ausilio alla navigazione in fase di prova: non sostituisce le carte, le pubblicazioni e i servizi ufficiali.</p>
+          <div class="sh" style="margin:4px 0 0">Componenti di terze parti</div>
+          <ul class="lic">
+            <li>three.js (MIT) — grafica 3D</li>
+            <li>geotiff.js (MIT) con pako, LERC, float16, zstddec e altri moduli inclusi (MIT, Apache 2.0, CC0)</li>
+            <li>Capacitor e plugin Bluetooth LE (MIT) — app Android</li>
+          </ul>
+          <div class="sh" style="margin:4px 0 0">Dati</div>
+          <ul class="lic">
+            <li>Spazi aerei, aeroporti, punti di riporto, radioassistenze: openAIP (openaip.net), CC BY-NC 4.0</li>
+            <li>Ostacoli e base cartografica: © OpenStreetMap contributors, ODbL 1.0</li>
+            <li>Terreno: prodotto con Copernicus WorldDEM-30 © DLR e.V. 2010-2014 e © Airbus Defence and Space GmbH 2014-2018, fornito nell'ambito di COPERNICUS dall'Unione Europea e dall'ESA</li>
+            <li>Liste di controllo del P96 Golf e del P2002 Sierra: Aeroclub dei Marsi</li>
+            <li>Meteo: NOAA Aviation Weather Center · radar: Dipartimento della Protezione Civile (CC BY-SA 4.0) · previsioni: ItaliaMeteo-ARPAE ICON-2I tramite Open-Meteo (CC BY 4.0)</li>
+          </ul>
+          <p class="note"><a href="./LICENZE-TERZE-PARTI.txt" target="_blank" rel="noopener">Testi completi delle licenze</a></p>
+        </div>
+      </details>
+      <details class="support" id="support" hidden>
+        <summary><span aria-hidden="true">☕</span> Un caffè per AerIA</summary>
+        <div class="sbody">
+          <p id="supportText"></p>
+          <a class="btn sm" id="supportLink" href="#" target="_blank" rel="noopener noreferrer">Offri un caffè con PayPal</a>
+          <p class="fine">Si apre la pagina di PayPal nel browser. AerIA non riceve né conserva i tuoi dati di pagamento.</p>
+        </div>
+      </details>
+    </div>
+  </aside>
+</div>
+<div id="guide" class="guide" role="dialog" aria-label="Guida all’uso"><div class="phead"><h2>Guida all’uso</h2><div class="spacer"></div><button class="xbtn" type="button" id="closeGuide" aria-label="Chiudi"><svg class="ic"><use href="#i-close"/></svg></button></div><iframe title="Guida all’uso" id="guideFrame"></iframe></div>
+<section class="nearest timers checks" id="checks" aria-live="off" aria-label="Liste di controllo"></section>
+<div id="updBanner" class="updbanner" role="dialog" aria-live="polite" aria-label="Nuova versione"></div>
+<div id="printForm" aria-hidden="true"></div>
+<script type="module" src="./src/app.js"></script>
+</body>
+</html>

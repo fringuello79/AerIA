@@ -1,0 +1,78 @@
+// AerIA VFR · © 2026 fringuello79 (Avezzano). Tutti i diritti riservati.
+apply plugin: 'com.android.application'
+
+// Versione dal package.json (la stessa dell'app e di CHANGELOG.md). Le compilazioni intermedie su GitHub Actions
+// hanno il suffisso «+N» (numero dell'esecuzione); versionCode = N, sempre crescente.
+def appVersion = new groovy.json.JsonSlurper().parse(file("../../package.json")).version
+def runNumber = System.getenv("GITHUB_RUN_NUMBER") ?: "1"
+
+android {
+    namespace = "it.airplanning.nav"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "it.airplanning.nav"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode runNumber.toInteger()
+        versionName appVersion + "+" + runNumber
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    // Firma degli APK: chiave privata di AerIA, fuori dal repository. In GitHub Actions arriva dai segreti del
+    // repository (AERIA_KEYSTORE_B64, AERIA_KEYSTORE_PASSWORD: docs/rilasci.md) attraverso le variabili d'ambiente.
+    // Senza variabili (compilazione sul proprio computer) si usa la chiave di debug locale di Android: quell'APK non
+    // si installa sopra quello ufficiale. Firma di fringuello79 (Avezzano).
+    def aeriaKs = System.getenv('AERIA_KEYSTORE_FILE')
+    signingConfigs {
+        aeria {
+            if (aeriaKs) {
+                storeFile file(aeriaKs)
+                storePassword System.getenv('AERIA_KEYSTORE_PASSWORD')
+                keyAlias 'aeria'
+                keyPassword System.getenv('AERIA_KEYSTORE_PASSWORD')
+            }
+        }
+    }
+    buildTypes {
+        debug {
+            if (aeriaKs) signingConfig signingConfigs.aeria
+        }
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

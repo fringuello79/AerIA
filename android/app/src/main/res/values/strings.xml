@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!-- AerIA VFR · © 2026 fringuello79 (Avezzano). Tutti i diritti riservati. -->
+<resources>
+    <string name="app_name">AerIA VFR</string>
+    <string name="title_activity_main">AerIA VFR</string>
+    <string name="package_name">it.airplanning.nav</string>
+    <string name="custom_url_scheme">it.airplanning.nav</string>
+</resources>

@@ -1,0 +1,17 @@
+# AerIA VFR · © 2026 fringuello79 (Avezzano). Tutti i diritti riservati.
+# Prova manuale delle fonti NOTAM raggiungibili senza account (tools/prova_notam.py). Solo lettura.
+name: Prova NOTAM
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prova:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/prova_notam.py

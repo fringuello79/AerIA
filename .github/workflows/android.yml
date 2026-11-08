@@ -1,0 +1,131 @@
+# AerIA VFR · © 2026 fringuello79 (Avezzano). Tutti i diritti riservati.
+# Compila l'app Android (APK di prova) a ogni modifica e la mette tra gli «Artifacts» del workflow.
+name: App Android
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Pacchetto dati"]
+    types: [completed]
+
+permissions:
+  contents: write
+
+jobs:
+  test-e-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # token del canale pubblico degli aggiornamenti (docs/rilasci.md): se manca, il passo del canale si salta
+      AGG_TOKEN: ${{ secrets.AGGIORNAMENTI_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # storia completa: servono i commit delle versioni per le etichette
+
+      - name: Pacchetto Italia centrale (ramo «pacchetti»)
+        run: |
+          if git fetch --depth 1 origin +pacchetti; then
+            git archive FETCH_HEAD terrain region.json basemap.json | tar -x -C web-prototype/data/centro
+            du -sh web-prototype/data/centro
+          else
+            echo "Ramo «pacchetti» assente: l'app userà il pacchetto Marsica"
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Dipendenze
+        run: npm ci
+
+      - name: Test automatici (quote, regole VDS, spazi aerei, radio)
+        run: npm test
+
+      - name: Liste di controllo uguali ai documenti originali dell'aeroclub
+        run: |
+          pip install --quiet python-docx
+          python3 tools/make_checklists.py --controlla
+
+      - name: Controllo della versione (package.json, app, CHANGELOG.md)
+        run: node tools/rilascio.mjs --controlla
+
+      - name: Copia l'app web nel progetto Android
+        run: npx cap sync android
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Chiave di firma (segreti del repository)
+        env:
+          KS: ${{ secrets.AERIA_KEYSTORE_B64 }}
+          PW: ${{ secrets.AERIA_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KS" ] || [ -z "$PW" ]; then echo "::error::Mancano i segreti AERIA_KEYSTORE_B64 e AERIA_KEYSTORE_PASSWORD: vedi docs/rilasci.md, «Chiave di firma»"; exit 1; fi
+          echo "::add-mask::$PW"
+          echo "$KS" | base64 -d > "$RUNNER_TEMP/aeria.keystore"
+          echo "AERIA_KEYSTORE_FILE=$RUNNER_TEMP/aeria.keystore" >> "$GITHUB_ENV"
+          echo "AERIA_KEYSTORE_PASSWORD=$PW" >> "$GITHUB_ENV"
+
+      - name: Compila l'APK di prova
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Controlla la firma (solo la chiave di AerIA)
+        run: |
+          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          SIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          GOT=$("$SIGNER" verify --print-certs "$APK" | grep -m1 'SHA-256 digest' | awk '{print $NF}' | tr 'a-f' 'A-F')
+          WANT=$(tr -d ': \n' < android/firma-sha256.txt | tr 'a-f' 'A-F')
+          echo "firma: $GOT"
+          [ "$GOT" = "$WANT" ] || { echo "::error::APK firmato con una chiave diversa da quella di AerIA (atteso $WANT)"; exit 1; }
+
+      - name: Verifica il contenuto dell'APK (app, pacchetto dati, permesso GPS)
+        run: |
+          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          for f in assets/public/data/centro/pack.json assets/public/data/centro/region.json assets/public/data/centro/basemap.json assets/public/data/centro/terrain/overview.json assets/public/data/centro/terrain/N42E013.json assets/public/data/centro/airspaces.json assets/public/data/centro/features.json assets/public/src/vprofile.js assets/public/index.html assets/public/src/app.js assets/public/data/marsica/pack.json assets/public/data/marsica/terrain.json assets/public/data/marsica/airspaces.json assets/public/data/marsica/geoid.json assets/public/src/weather.js assets/public/src/devices.js assets/public/src/forecast.js assets/public/src/altimetry.js assets/public/src/features.js assets/public/src/radar.js assets/public/src/navlog.js assets/public/src/navlogui.js assets/public/data/marsica/declination.json assets/public/data/marsica/features.json assets/public/LICENZE-TERZE-PARTI.txt assets/public/guida.html assets/public/src/update.js assets/public/src/checklists-acm.js assets/public/src/freshness.js assets/public/src/lod.js; do
+            unzip -l "$APK" | grep -q "$f" || { echo "Manca $f"; exit 1; }
+          done
+          find android/app/build/intermediates -name AndroidManifest.xml -path "*merged_manifest*" -print0 | xargs -0 grep -l ACCESS_FINE_LOCATION | grep -q . || { echo "Manca il permesso GPS"; exit 1; }
+          find android/app/build/intermediates -name AndroidManifest.xml -path "*merged_manifest*" -print0 | xargs -0 grep -l REQUEST_INSTALL_PACKAGES | grep -q . || { echo "Manca il permesso per installare gli aggiornamenti"; exit 1; }
+          echo "APK completo: app, pacchetti Italia centrale e Marsica, permesso GPS presenti."
+
+      - name: Pubblica l'APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AerIA-VFR-apk-di-prova
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+
+      - name: APK nel ramo «apk» (per scaricarlo senza accedere agli Artifacts)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          mkdir apk-out && cd apk-out
+          cp ../android/app/build/outputs/apk/debug/app-debug.apk "AerIA-VFR-prova.apk"
+          printf "APK di prova AerIA VFR\nversione %s+%s, commit %s, %s\nFirmato con la chiave di AerIA (impronta SHA-256 in android/firma-sha256.txt).\n" "$(node -p "require('../package.json').version")" "$GITHUB_RUN_NUMBER" "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%MZ)" > LEGGIMI.txt
+          git init -q -b apk
+          git config user.name "AerIA VFR CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A && git commit -q -m "APK di prova $GITHUB_RUN_NUMBER ($GITHUB_SHA)"
+          git push -q -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" apk
+
+      - name: Etichette di versione e pagina di rilascio
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RILASCI_TOKEN: ${{ secrets.RILASCI_TOKEN }}
+        run: |
+          git config user.name "AerIA VFR CI"
+          git config user.email "actions@users.noreply.github.com"
+          node tools/rilascio.mjs android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Canale degli aggiornamenti (repository pubblico con le sole versioni)
+        if: github.ref == 'refs/heads/main' && env.AGG_TOKEN != ''
+        env:
+          GH_TOKEN: ${{ secrets.AGGIORNAMENTI_TOKEN }}
+        run: node tools/rilascio.mjs --canale android/app/build/outputs/apk/debug/app-debug.apk

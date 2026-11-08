@@ -1,0 +1,61 @@
+{
+  "name": "Marsica e Fucino",
+  "created": "2026-11-06",
+  "bounds": {
+    "lonMin": 13.0,
+    "lonMax": 14.0,
+    "latMin": 41.6,
+    "latMax": 42.6
+  },
+  "terrain": {
+    "file": "terrain.json",
+    "name": "Copernicus GLO-30 ridotto a 3\" (massimo per blocco)",
+    "source": "Copernicus DEM GLO-30",
+    "w": 1200,
+    "h": 1200,
+    "cx0": 13.000277777777777,
+    "cy0": 42.599722222222226,
+    "dx": 0.0008333333333333334,
+    "dy": -0.0008333333333333334,
+    "nodata": -32768,
+    "bounds": {
+      "lonMin": 13.0,
+      "lonMax": 14.0,
+      "latMin": 41.6,
+      "latMax": 42.6
+    },
+    "attribution": "produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved"
+  },
+  "airspaces": {
+    "file": "airspaces.json",
+    "source": "openAIP",
+    "count": 85,
+    "downloaded": "2026-11-06",
+    "newestEdit": "2026-09-02T13:26:38.157Z",
+    "license": "CC BY-NC 4.0",
+    "attribution": "Spazi aerei: openAIP (www.openaip.net), CC BY-NC 4.0"
+  },
+  "geoid": {
+    "file": "geoid.json",
+    "model": "EGM96",
+    "source": "NGA (dominio pubblico)"
+  },
+  "features": {
+    "file": "features.json",
+    "source": "openAIP",
+    "downloaded": "2026-11-06",
+    "counts": {
+      "airports": 23,
+      "obstacles": 86,
+      "reportingPoints": 14,
+      "navaids": 7
+    },
+    "license": "CC BY-NC 4.0; ostacoli da OpenStreetMap, ODbL",
+    "attribution": "Aeroporti, punti e radioassistenze: openAIP (www.openaip.net), CC BY-NC 4.0 · Ostacoli: openAIP, dati © OpenStreetMap contributors (ODbL)"
+  },
+  "declination": {
+    "file": "declination.json",
+    "model": "WMM2025",
+    "source": "NOAA/NGA (dominio pubblico)"
+  }
+}

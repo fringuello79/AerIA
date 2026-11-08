@@ -1,0 +1,47 @@
+{
+  "name": "Italia centrale",
+  "created": "2026-11-06",
+  "bounds": {
+    "lonMin": 9.5,
+    "lonMax": 16.0,
+    "latMin": 40.0,
+    "latMax": 45.0
+  },
+  "note": "Spazi aerei, aeroporti e punti: solo Italia (export openAIP Italia). Corsica e mare oltre il confine della FIR non coperti.",
+  "region": {
+    "file": "region.json",
+    "note": "terreno e base cartografica dal ramo «pacchetti» (tools/make_region.py)"
+  },
+  "airspaces": {
+    "file": "airspaces.json",
+    "source": "openAIP",
+    "count": 692,
+    "downloaded": "2026-11-06",
+    "newestEdit": "2026-09-23T06:55:28.886Z",
+    "license": "CC BY-NC 4.0",
+    "attribution": "Spazi aerei: openAIP (www.openaip.net), CC BY-NC 4.0"
+  },
+  "features": {
+    "file": "features.json",
+    "source": "openAIP",
+    "downloaded": "2026-11-06",
+    "counts": {
+      "airports": 276,
+      "obstacles": 3885,
+      "reportingPoints": 209,
+      "navaids": 53
+    },
+    "license": "CC BY-NC 4.0; ostacoli da OpenStreetMap, ODbL",
+    "attribution": "Aeroporti, punti e radioassistenze: openAIP (www.openaip.net), CC BY-NC 4.0 · Ostacoli: openAIP, dati © OpenStreetMap contributors (ODbL)"
+  },
+  "geoid": {
+    "file": "geoid.json",
+    "model": "EGM96",
+    "source": "NGA (dominio pubblico)"
+  },
+  "declination": {
+    "file": "declination.json",
+    "model": "WMM2025",
+    "source": "NOAA/NGA (dominio pubblico)"
+  }
+}

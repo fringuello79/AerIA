@@ -1,0 +1,66 @@
+# AerIA VFR · © 2026 fringuello79 (Avezzano). Tutti i diritti riservati.
+# Costruisce il pacchetto «Italia centrale» (terreno Copernicus a tessere, vette e base cartografica OpenStreetMap)
+# scaricando i dati dalle fonti ufficiali, e lo pubblica nel ramo «pacchetti» (un solo commit, sostituito a ogni
+# esecuzione: il ramo «main» resta leggero). Gira ogni mese per prendere gli aggiornamenti di OpenStreetMap.
+name: Pacchetto dati
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 2 * *"
+  push:
+    branches: [main]
+    paths:
+      - tools/make_region.py
+      - .github/workflows/dati.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pacchetto-dati
+  cancel-in-progress: false
+
+jobs:
+  pacchetto:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Dipendenze
+        run: pip install numpy==2.1.3 rasterio==1.4.3 requests==2.32.3 shapely==2.0.6
+
+      - name: Tessere Copernicus già scaricate
+        uses: actions/cache@v4
+        with:
+          path: dem-cache
+          key: copernicus-glo30-centro-v1
+
+      - name: Costruisce il pacchetto (con i controlli su vette e località note)
+        run: python3 tools/make_region.py pacchetto-centro
+
+      - name: Pubblica nel ramo «pacchetti»
+        run: |
+          cd pacchetto-centro
+          cat > LEGGIMI.md <<'EOF'
+          # Pacchetto «Italia centrale» per AerIA VFR
+
+          Generato da tools/make_region.py (workflow «Pacchetto dati»). Non modificare a mano.
+
+          - Terreno: produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH
+            2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved.
+          - Base cartografica e vette: © OpenStreetMap contributors, licenza ODbL 1.0
+            (https://opendatacommons.org/licenses/odbl/). Questa banca dati derivata è distribuita con la stessa licenza.
+          EOF
+          git init -q -b pacchetti
+          git config user.name "AerIA VFR CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Pacchetto Italia centrale $(date -u +%Y-%m-%d)"
+          git push -q -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" pacchetti
+          du -sh .
