@@ -380,6 +380,22 @@ body.theme-night .checks .c-g { border-left-color: #7fe07a; } body.theme-night .
   background: var(--panel); color: var(--ink); border: 2px solid var(--accent); border-radius: var(--r); box-shadow: var(--shadow); padding: 10px 12px; }
 .updbanner.on { display: block; }
 .barbtn.listbtn { width: auto; padding: 0 12px; gap: 6px; display: inline-flex; align-items: center; font-weight: 600; } .barbtn.listbtn.on { outline: 2px solid var(--accent); }
+/* «Sostieni AerIA»: cuore nella barra e finestra del sostegno volontario */
+.barbtn.heartbtn { width: auto; min-width: 58px; padding: 3px 8px 2px; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+.barbtn.heartbtn .ic { width: 19px; height: 19px; color: #ff6b81; fill: rgba(255, 107, 129, .22); }
+.barbtn.heartbtn span { font-size: 9.5px; font-weight: 600; color: var(--bar-muted); letter-spacing: .02em; line-height: 1; }
+.barbtn.heartbtn:hover span { color: var(--bar-ink); }
+.supportdlg { position: fixed; inset: 0; z-index: 75; background: rgba(0, 0, 0, .45); display: flex; align-items: center; justify-content: center; padding: 12px; }
+.supportdlg[hidden] { display: none; }
+.supportdlg .srow [hidden] { display: none; }
+.supportdlg .sbox { width: min(560px, 100%); max-height: calc(100% - 24px); overflow: auto; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); padding: 12px 16px 14px; font-size: 14px; line-height: 1.5; }
+.supportdlg .shead { display: flex; align-items: center; gap: 8px; margin: -2px -6px 6px 0; }
+.supportdlg .shead h2 { margin: 0; font-size: 16px; }
+.supportdlg .shead > .ic { color: #ff6b81; fill: rgba(255, 107, 129, .22); }
+.supportdlg p { margin: 0 0 10px; }
+.supportdlg .fine { color: var(--muted); font-size: 13px; }
+.supportdlg .srow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; }
+.supportdlg .srow .btn { text-decoration: none; }
 .guide { position: fixed; inset: 40px max(12px, calc(50vw - 460px)) 12px; z-index: 70; display: none; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); overflow: hidden; }
 .guide.on { display: flex; } .guide iframe { flex: 1; border: 0; width: 100%; background: var(--panel); }
 .updbanner b { font-size: 1.08em; } .updbanner ul { margin: 6px 0; padding-left: 18px; font-size: .92em; }
@@ -510,7 +526,7 @@ body:not(.view-radio) .radio-only { display: none !important; }
   .proto { display: none; }
   .strip .c.opt { display: none; }
 }
-@media (max-width: 640px) { header .brand small, header .brand .by { display: none; } .views button { font-size: .85em; padding: 0 7px; } }
+@media (max-width: 640px) { header .brand small, header .brand .by, .barbtn.heartbtn span, .barbtn.listbtn span { display: none; } .barbtn.heartbtn { min-width: 40px; padding: 0 6px; } .barbtn.listbtn { padding: 0 10px; } .views button { font-size: .85em; padding: 0 7px; } }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 .fv79{--o:"\41 \65 \72 \49 \41 \20 \56 \46 \52 \20 \28 \63 \29 \20 \32 \30 \32 \36 \20 \41 \6c \65 \73 \73 \61 \6e \64 \72 \6f \20 \46 \65 \6c \6c \69 \20 \2d \20 \66 \72 \69 \6e \67 \75 \65 \6c \6c \6f \37 \39 \20 \2d \20 \41 \76 \65 \7a \7a \61 \6e \6f \20 \28 \41 \51 \29 \20 \2d \20 \74 \75 \74 \74 \69 \20 \69 \20 \64 \69 \72 \69 \74 \74 \69 \20 \72 \69 \73 \65 \72 \76 \61 \74 \69 "}
 </style>
@@ -539,6 +555,7 @@ body:not(.view-radio) .radio-only { display: none !important; }
   <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
   <symbol id="i-ridge" viewBox="0 0 24 24"><path d="M2 19l6-9 4 5 3-4 7 8z"/><path d="M2 8h20" stroke-dasharray="2 2"/></symbol>
   <symbol id="i-timer" viewBox="0 0 24 24"><circle cx="12" cy="13" r="7.5"/><path d="M12 13V9M10 2.5h4M18.5 6.5l1.3-1.3"/></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/></symbol>
   <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
 </svg>
 <div class="app">
@@ -555,6 +572,7 @@ body:not(.view-radio) .radio-only { display: none !important; }
     <div class="proto" id="banner">Prototipo: non usare per la navigazione</div>
     <button class="barbtn listbtn" type="button" id="checkTop" title="Liste di controllo dell'aereo"><svg class="ic"><use href="#i-list"/></svg><span>Liste</span></button>
     <button class="barbtn" type="button" id="settingsBtn" aria-label="Impostazioni" title="Impostazioni"><svg class="ic"><use href="#i-gear"/></svg></button>
+    <button class="barbtn heartbtn" type="button" id="supportTop" title="Sostieni AerIA" aria-haspopup="dialog" hidden><svg class="ic"><use href="#i-heart"/></svg><span>Sostieni AerIA</span></button>
   </header>
 
   <div class="main">
@@ -819,6 +837,12 @@ body:not(.view-radio) .radio-only { display: none !important; }
 </div>
 <div id="guide" class="guide" role="dialog" aria-label="Guida all’uso"><div class="phead"><h2>Guida all’uso</h2><div class="spacer"></div><button class="xbtn" type="button" id="closeGuide" aria-label="Chiudi"><svg class="ic"><use href="#i-close"/></svg></button></div><iframe title="Guida all’uso" id="guideFrame"></iframe></div>
 <section class="nearest timers checks" id="checks" aria-live="off" aria-label="Liste di controllo"></section>
+<div id="supportDlg" class="supportdlg" hidden><div class="sbox" role="dialog" aria-modal="true" aria-labelledby="supportTitle">
+  <div class="shead"><svg class="ic"><use href="#i-heart"/></svg><h2 id="supportTitle">Sostieni AerIA</h2><div class="spacer"></div><button class="xbtn" type="button" data-s="close" aria-label="Chiudi"><svg class="ic"><use href="#i-close"/></svg></button></div>
+  <p><b>AerIA VFR è gratuito e completo, per tutti.</b><br>È un progetto in continua evoluzione, sviluppato nel tempo libero da fringuello79. Se ti è utile, puoi contribuire allo sviluppo con una donazione volontaria, di qualsiasi importo. Non sblocca niente e non è richiesta: è solo un grazie.</p>
+  <p class="fine" id="supportHow"></p>
+  <div class="srow"><a class="btn" id="supportProject" href="#" target="_blank" rel="noopener noreferrer">Pagina del progetto</a><span class="spacer"></span><a class="btn" id="supportPaypal" href="#" target="_blank" rel="noopener noreferrer">PayPal</a><a class="btn primary" id="supportSponsor" href="#" target="_blank" rel="noopener noreferrer" hidden><svg class="ic"><use href="#i-heart"/></svg>Diventa sponsor</a><button class="btn" type="button" data-s="close">Chiudi</button></div>
+</div></div>
 <div id="updBanner" class="updbanner" role="dialog" aria-live="polite" aria-label="Nuova versione"></div>
 <div id="printForm" aria-hidden="true"></div>
 <script type="module" src="./src/app.js"></script>

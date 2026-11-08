@@ -10,7 +10,7 @@ import { FT, NM, KT, makeProjection, distM, bearingDeg, destPoint, clipRing, den
 import { Terrain, parseHgt, parseTiff, gridFromPack, decodePackGrid } from './terrain.js';
 import { verticalProfile } from './vprofile.js';
 import { rootTiles, selectLod } from './lod.js';
-import { VERSION, AUTHOR, DONATE_URL, TABELLA_K } from './version.js';
+import { VERSION, AUTHOR, DONATE_URL, SPONSORS_URL, PROJECT_URL, TABELLA_K } from './version.js';
 import { fromGeojson, fromOpenAir, limitFt, limitText, category, CAT_COLOR, CAT_LABEL, TYPE_LABEL, FIR_TYPES, entryRule, contactInfo } from './airspace.js';
 import { legAltFt, dayInfo, analyseRoute, lookahead, eventSpeech, airspacesAt, legCorridorMinFt, nodeMinFt, enforceLegClearance, LEG_CLEAR_FT, LEG_CORRIDOR_M } from './rules.js';
 import { buildRadioCards, maydayText, channelOf } from './radio.js';
@@ -2600,6 +2600,30 @@ const SUPPORT_TEXT = 'AerIA VFR è gratuito ed è sviluppato nel tempo libero. S
 if (/^https:\/\/(www\.)?(paypal\.me|paypal\.com)\//.test(DONATE_URL)) {
   $('supportText').textContent = SUPPORT_TEXT; $('supportLink').href = DONATE_URL; $('support').hidden = false;
 }
+// «Sostieni AerIA»: cuore nella barra in alto, a destra dell'ingranaggio; apre una finestra con PayPal, GitHub Sponsors
+// (solo se il profilo è attivo, version.js) e la pagina del progetto. Nessun richiamo automatico: si apre solo a richiesta.
+// fringuello79 di Avezzano
+const SUPPORT_OK = /^https:\/\/(www\.)?(paypal\.me|paypal\.com)\//.test(DONATE_URL);
+const SPONSOR_OK = /^https:\/\/github\.com\/sponsors\/[\w-]+$/.test(SPONSORS_URL);
+if (SUPPORT_OK || SPONSOR_OK) {
+  $('supportProject').href = PROJECT_URL;
+  $('supportPaypal').href = DONATE_URL; $('supportPaypal').hidden = !SUPPORT_OK;
+  $('supportSponsor').href = SPONSORS_URL; $('supportSponsor').hidden = !SPONSOR_OK;
+  if (!SPONSOR_OK) $('supportPaypal').classList.add('primary');
+  $('supportHow').textContent = `${SPONSOR_OK ? 'Puoi donare con GitHub Sponsors (una volta sola o ogni mese)' + (SUPPORT_OK ? ' oppure con PayPal' : '') : 'Puoi donare con PayPal'}: si apre il sito ufficiale nel browser, AerIA non vede né conserva i tuoi dati di pagamento. Anche una stella al progetto su GitHub aiuta a farlo conoscere.`;
+  $('supportTop').hidden = false;
+}
+function supportDlg(open) {
+  $('supportDlg').hidden = !open;
+  if (open) $('supportDlg').querySelector('.xbtn').focus(); else $('supportTop').focus();
+}
+$('supportTop').addEventListener('click', () => supportDlg(true));
+// chiude con «Chiudi», con la crocetta, toccando fuori dalla finestra o dopo aver aperto un collegamento
+$('supportDlg').addEventListener('click', e => {
+  if (e.target === e.currentTarget || e.target.closest('[data-s="close"]')) supportDlg(false);
+  else if (e.target.closest('a[href^="https://"]')) setTimeout(() => supportDlg(false), 0);
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('supportDlg').hidden) supportDlg(false); });
 $('undoWp').addEventListener('click', undoRoute);
 $('mapUndo').addEventListener('click', undoRoute);
 document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !editing(document.body)) { e.preventDefault(); undoRoute(); } });

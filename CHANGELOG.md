@@ -8,7 +8,15 @@ Ogni versione indica il commit da cui è stata creata. Il repository pubblico `f
 0.20.0 (8/11/2026) da un solo commit: le versioni precedenti restano descritte qui, senza commit né pagina di rilascio. Il workflow «App Android» crea in automatico l'etichetta
 (tag) `vX.Y.Z` su quel commit e, per la versione più recente, la pagina di rilascio su GitHub con l'APK.
 
-## [0.20.1] - 2026-11-08
+## [0.21.0] - 2026-11-08
+
+### Sostegno
+- **Cuore «Sostieni AerIA»** nella barra in alto, a destra dell'ingranaggio: apre una finestra con il grazie volontario
+  via PayPal e la pagina del progetto su GitHub (anche per una stella). «Diventa sponsor» (GitHub Sponsors) compare solo
+  quando il profilo sponsor sarà attivo. Si apre solo a richiesta; il programma funziona allo stesso modo per tutti.
+  Resta anche la voce «Un caffè per AerIA» in fondo alle Impostazioni.
+
+## [0.20.1] - 2026-11-08 · commit 5812d0b40809a90ce31123ba381b169115cb7cf5
 
 - Tutela della paternità del programma (© fringuello79, tutti i diritti riservati, vedi COPYRIGHT.md); icone ricompresse.
 
