@@ -1,0 +1,3 @@
+APK di prova AerIA VFR
+versione 0.21.0+3, commit ae567db531fd7361fa2ecd71a4382f8577af3eed, 2026-11-08T20:56Z
+Firmato con la chiave di AerIA (impronta SHA-256 in android/firma-sha256.txt).
