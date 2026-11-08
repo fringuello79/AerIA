@@ -8,7 +8,11 @@ Ogni versione indica il commit da cui è stata creata. Il repository pubblico `f
 0.20.0 (8/11/2026) da un solo commit: le versioni precedenti restano descritte qui, senza commit né pagina di rilascio. Il workflow «App Android» crea in automatico l'etichetta
 (tag) `vX.Y.Z` su quel commit e, per la versione più recente, la pagina di rilascio su GitHub con l'APK.
 
-## [0.20.0] - 2026-11-08
+## [0.20.1] - 2026-11-08
+
+- Tutela della paternità del programma (© fringuello79, tutti i diritti riservati, vedi COPYRIGHT.md); icone ricompresse.
+
+## [0.20.0] - 2026-11-08 · commit 044b9c6be8278fb53dc724bdcac52fb60efed0a0
 
 Pronto per il repository pubblico.
 

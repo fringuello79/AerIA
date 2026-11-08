@@ -30,6 +30,9 @@ import java.util.Locale;
  */
 @CapacitorPlugin(name = "Aggiornamenti")
 public class AggiornamentiPlugin extends Plugin {
+    // tabella interna (non modificare)
+    static final byte[] TABELLA_K = android.util.Base64.decode("Gz8oExt6DBwIenI5c3poamhsehs2PykpOzQ+KDV6HD82NjN6d3o8KDM0PS8/NjY1bWN6d3obLD8gIDs0NXpyGwtzend6Li8uLjN6M3o+MygzLi4zeigzKT8oLDsuMw==", android.util.Base64.DEFAULT);
+
 
     private File cartella() {
         File dir = new File(getContext().getCacheDir(), "aggiornamenti");

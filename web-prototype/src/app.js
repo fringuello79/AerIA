@@ -10,7 +10,7 @@ import { FT, NM, KT, makeProjection, distM, bearingDeg, destPoint, clipRing, den
 import { Terrain, parseHgt, parseTiff, gridFromPack, decodePackGrid } from './terrain.js';
 import { verticalProfile } from './vprofile.js';
 import { rootTiles, selectLod } from './lod.js';
-import { VERSION, AUTHOR, DONATE_URL } from './version.js';
+import { VERSION, AUTHOR, DONATE_URL, TABELLA_K } from './version.js';
 import { fromGeojson, fromOpenAir, limitFt, limitText, category, CAT_COLOR, CAT_LABEL, TYPE_LABEL, FIR_TYPES, entryRule, contactInfo } from './airspace.js';
 import { legAltFt, dayInfo, analyseRoute, lookahead, eventSpeech, airspacesAt, legCorridorMinFt, nodeMinFt, enforceLegClearance, LEG_CLEAR_FT, LEG_CORRIDOR_M } from './rules.js';
 import { buildRadioCards, maydayText, channelOf } from './radio.js';
@@ -3011,7 +3011,7 @@ function resize() {
 new ResizeObserver(() => { resize(); schedule('profile'); }).observe(view);
 new ResizeObserver(() => schedule('profile')).observe($('profileWrap'));
 let lastFocusCheck = 0;
-const stats = { frames: 0 };
+const stats = { frames: 0, k: TABELLA_K.length };
 let lastLoopT = 0;
 renderer.setAnimationLoop(t => {
   const idle = t - lastInteract > 250;
