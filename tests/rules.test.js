@@ -1,7 +1,7 @@
 // AerIA VFR · © 2026 fringuello79 (Avezzano). Tutti i diritti riservati.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { dayInfo, holidayName, easter, analyseRoute, lookahead } from '../web-prototype/src/rules.js';
+import { dayInfo, holidayName, easter, analyseRoute, lookahead, eventSpeech } from '../web-prototype/src/rules.js';
 import { destPoint } from '../web-prototype/src/geo.js';
 import { Terrain } from '../web-prototype/src/terrain.js';
 globalThis.__T = { Terrain };
@@ -207,4 +207,24 @@ test('la previsione segue la virata in corso', () => {
     .events.filter(e => e.kind === 'terrain' && e.lvl === 'crit');
   assert.equal(run(0).length, 1);
   assert.equal(run(3).length, 0);
+});
+
+test('avvisi di terreno: anticipo scelto dal pilota (0.23.0)', () => {
+  // cresta a 5000 ft oltre il meridiano a 3 NM a est (90 s a 120 kt); aereo a 4800 ft verso est
+  const ridgeLon = destPoint([13.5, 42.0], 90, 3)[0];
+  const ridge = { elevFt: lon => (lon >= ridgeLon ? 5000 : 2000), maxWithinFt: () => 5000 };
+  const base = { pos: { lon: 13.5, lat: 42.0 }, trackDeg: 90, gsKt: 120, altFt: 4800, pilot: 'avanzato', qnh: 1013.25, airspaces: [], terrain: ridge, day };
+  const t120 = lookahead({ ...base }).events.filter(e => e.kind === 'terrain');
+  assert.equal(t120.length, 1); assert.equal(t120[0].lvl, 'warn');   // oltre 60 s: attenzione, non grave
+  assert.ok(t120[0].t >= 85 && t120[0].t <= 95, `a ${t120[0].t} s`);
+  assert.equal(lookahead({ ...base, terrainWarnS: 60, terrainCritS: 60 }).events.filter(e => e.kind === 'terrain').length, 0);
+  // cresta a 1,5 NM (45 s): grave anche con l'anticipo corto
+  const nearLon = destPoint([13.5, 42.0], 90, 1.5)[0];
+  const near = lookahead({ ...base, terrain: { elevFt: lon => (lon >= nearLon ? 5000 : 2000), maxWithinFt: () => 5000 }, terrainWarnS: 60, terrainCritS: 60 }).events.filter(e => e.kind === 'terrain');
+  assert.equal(near.at(-1).lvl, 'crit');
+});
+
+test('voce del limite VDS: piedi da scendere per eccesso ai 100', () => {
+  assert.equal(eventSpeech({ kind: 'vds', t: 70, over: 44 }), 'Limite VDS superato tra 1 minuto e 10 secondi. Scendi di 100 piedi.');
+  assert.equal(eventSpeech({ kind: 'vds', t: 5, over: 250 }), 'Limite VDS superato adesso. Scendi di 300 piedi.');
 });

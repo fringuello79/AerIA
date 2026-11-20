@@ -27,10 +27,12 @@ import { freshnessWarnings, staleAirspaceInfo, airacCycle } from './freshness.js
 import { featureWarnings, fieldAt, aerodromeKind, obstacleTopFt, unknownHeightM, VDS_AIRPORT_KM, aliasesFor, fieldDoubtWarnings } from './features.js';
 import { sunTimes, localHM, daylightChecks, romeToUtcMs } from './sun.js';
 import { glideReachM, arrivalHeightFt } from './glide.js';
-import { newPhase, phaseStep, fmtDur, fmtDurIt, fmtEte, fmtMS, reminderState, fuelEstimate, fuelWarnings, verticalSpeedFpm, requiredVsFpm, logEntry, pointReminderStep } from './flight.js';
+import { newPhase, phaseStep, fmtDur, fmtDurIt, fmtEte, fmtMS, reminderState, fuelEstimate, fuelWarnings, verticalSpeedFpm, logEntry, pointReminderStep } from './flight.js';
 import { MINIMA_DEFAULT, minimaWarnings } from './minima.js';
 import { ingestFlarm, pruneTraffic, trafficList, trafficAlarm, trafficText, flarmAlarmText } from './traffic.js';
 import { analyzeFlight } from './debrief.js';
+import { airspacesAround, isNear, emphasisIds, exitTimeS, terrainAlertConfig, filterTerrainEvents, call500Step, safeHereFt, safeRouteFt, aglShown, nearSpeech, SAFE_RADIUS_KM } from './alerts.js';
+import { descentGuide, descentCues } from './descent.js';
 import { parseChecklists, checklistText, isEmergency, allLists, isCheckable } from './checklist.js';
 import { UPDATE_CHANNELS, pickUpdate, shouldCheck, compareVersions } from './update.js';
 import { ACM_CHECKLISTS } from './checklists-acm.js';
@@ -75,7 +77,7 @@ const css = name => getComputedStyle(document.body).getPropertyValue(name).trim(
 
 // Preferenze del singolo dispositivo (comodità, non dati di volo)
 const prefs = (() => { try { return JSON.parse(localStorage.getItem('airplanning.prefs') || '{}'); } catch { return {}; } })();
-function savePrefs() { try { localStorage.setItem('airplanning.prefs', JSON.stringify({ mode: state.mode, theme: state.theme, dim: state.dim, callsign: ui.callsign.value, acType: ui.acType.value, pilot: ui.pilot.value, panels: state.panels, inst: state.inst, glideMargin: state.glideMargin, remindMin: state.remindMin, minima: state.minima, trafficBand: state.trafficBand, showTrail: state.showTrail, airCeil: state.airCeil })); } catch { /* memoria non disponibile */ } }
+function savePrefs() { try { localStorage.setItem('airplanning.prefs', JSON.stringify({ mode: state.mode, theme: state.theme, dim: state.dim, callsign: ui.callsign.value, acType: ui.acType.value, pilot: ui.pilot.value, panels: state.panels, inst: state.inst, glideMargin: state.glideMargin, remindMin: state.remindMin, minima: state.minima, trafficBand: state.trafficBand, showTrail: state.showTrail, airCeil: state.airCeil, alertSet: state.alertSet, minRwyM: state.minRwyM })); } catch { /* memoria non disponibile */ } }
 if (prefs.callsign) ui.callsign.value = prefs.callsign;
 if (prefs.acType) ui.acType.value = prefs.acType;
 if (prefs.pilot) ui.pilot.value = prefs.pilot;
@@ -89,6 +91,11 @@ state.airCeil = prefs.airCeil || 'auto';   // scia dell'aereo (accesa salvo scel
 state.minima = { on: true, ...MINIMA_DEFAULT, ...(prefs.minima || {}) };
 // traffico FLARM / ADS-B: fascia di quota mostrata (± ft), allarme sospeso fino a, traffico ricevuto
 state.trafficBand = Number.isFinite(prefs.trafficBand) ? prefs.trafficBand : 2000;
+// avvisi in volo scelti dal pilota (dalla 0.23.0, alerts.js): margine e anticipo degli avvisi di terreno, solo i gravi,
+// «cinquecento» sul campo d'arrivo, spazi aerei vicini a voce, inizio discesa a voce
+state.alertSet = { margin: 'auto', aheadS: 120, sens: 'tutti', call500: true, near: true, tod: true, ...(prefs.alertSet || {}) };
+// campi vicini: pista minima (m) scelta dal pilota; 0 = tutti
+state.minRwyM = Number.isFinite(prefs.minRwyM) ? prefs.minRwyM : 0;
 state.traffic = new Map(); state.trafficMuteUntil = 0; state.trafficShown = null;
 // promemoria legati ai punti della rotta, liste di controllo, revisione del volo
 state.ptRem = []; state.showChecks = false; state.review = null;
@@ -750,6 +757,8 @@ function relevantAirspaces() {
   if (state.analysis) for (const h of state.analysis.hits) set.add(h.a);
   for (const e of state.fly.events || []) if (e.airspace) set.add(e.airspace);
   for (const a of state.fly.inside || []) set.add(a);
+  // in volo: anche gli spazi vicini alla quota dell'aereo (entro 5 NM e 1000 ft); tutti gli altri si attenuano
+  if (state.fly.active && state.view === 'fly') for (const x of state.fly.around || []) if (state.fly.emph?.has(x.a.id)) set.add(x.a);
   if (state.selected) set.add(state.selected);
   return set;
 }
@@ -1068,7 +1077,12 @@ function buildPlane() {
   groups.plane.add(m);
   const stem = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), new THREE.LineBasicMaterial({ color: '#e5384f' }));
   groups.plane.add(stem);
-  planeObj.sprite = m; planeObj.stem = stem; placePlane();
+  planeObj.sprite = m; planeObj.stem = stem; planeObj.q = null; placePlane();
+  // posizione persa: punto interrogativo rosso sull'aereo (lampeggia col controllo del GPS) e niente vettore della traccia
+  if (f.lost) {
+    const q = makeLabel('?', '#e5384f', 1.6); q.userData.anchor = m.userData.anchor; q.userData.offPx = 30; q.userData.noBig = true; q.renderOrder = 21;
+    groups.plane.add(q); planeObj.q = q; return;
+  }
   // vettore della traccia: dove sarà l'aereo tra 1 e 2 minuti alla velocità e rotta attuali (tacca a ogni minuto)
   if (f.gsKt > 20) {
     const l = P.toLocal(f.pos.lon, f.pos.lat), y = yAbove(f.pos.lon, f.pos.lat, f.altFt), t = f.trk * Math.PI / 180;
@@ -1557,7 +1571,7 @@ const INST = [
   ['gs', 'Velocità al suolo'], ['alt', 'Quota'], ['agl', 'Sopra il terreno'], ['trk', 'Rotta seguita (M)'],
   ['next', 'Prossimo punto'], ['brg', 'Rotta al prossimo punto (M)'], ['ete', 'Tempo al prossimo punto'], ['eta', 'Ora al prossimo punto'],
   ['dest', 'Distanza all’arrivo'], ['destete', 'Tempo all’arrivo'], ['desteta', 'Ora di arrivo'], ['xtk', 'Fuori rotta'],
-  ['vs', 'Variometro'], ['vsr', 'Rateo per l’arrivo'], ['vds', 'Limite VDS qui'], ['light', 'Luce del giorno'],
+  ['vs', 'Variometro'], ['vsr', 'Rateo per l’arrivo'], ['vnav', 'Discesa per l’arrivo'], ['msa', 'Quota sicura qui'], ['esa', 'Quota sicura sulla rotta'], ['vds', 'Limite VDS qui'], ['light', 'Luce del giorno'],
   ['ftime', 'Tempo di volo'], ['remind', 'Promemoria'], ['fuel', 'Carburante stimato'], ['gpsacc', 'Precisione GPS'],
   ['qnhnear', 'QNH più vicino'], ['wind', 'Vento previsto qui'], ['utc', 'Ora UTC'], ['none', 'Casella vuota'],
 ];
@@ -1569,9 +1583,16 @@ const deg3 = x => String(Math.round(((x % 360) + 360) % 360) || 360).padStart(3,
 // Valori di tutti gli strumenti: [etichetta, valore, classe]
 function instValues(c) {
   const f = state.fly, pilot = ui.pilot.value, dec = declAt(f.pos.lon, f.pos.lat), now = c.now, nw = c.nw;
-  const destP = state.route.length > 1 ? state.route.at(-1) : null, dDest = destP ? distM(f.pos, destP) / NM : NaN;
+  // all'arrivo: lungo la rotta che resta (con «Diretto» attivo, in linea retta dall'aereo all'ultimo punto)
+  const destP = state.route.length > 1 ? state.route.at(-1) : null, dDest = destP ? (state.direct ? distM(f.pos, destP) / NM : remainingNm(nw)) : NaN;
   const eteDest = f.gsKt > 20 && Number.isFinite(dDest) ? dDest / f.gsKt * 60 : NaN;
-  const arrF = destP ? fieldAt(state.feats, destP) : null, tgt = arrF ? arrF.elevM * FT + 1000 : NaN;
+  const arr = f.arr, g = f.dg;
+  const ag = aglShown(f.altFt - c.terr, c.unc);
+  const activeLeg = nw && !nw.direct && nw.i > 0 ? nw.i - 1 : 0, esa = nw?.direct ? NaN : safeRouteFt(legMins(), activeLeg);
+  // discesa: prima dell'inizio il tempo che manca, dopo lo scarto dal profilo (testi corti: stanno nella casella)
+  const vnavTxt = !g ? '—' : arr.climbLater ? 'prima si sale' : g.state === 'in quota' ? 'in quota' : g.state === 'crociera' ? `tra ${fmtEte(g.todS / 60)}`
+    : Math.abs(g.devFt) < 150 ? 'sul profilo' : `${Math.round(Math.abs(g.devFt) / 50) * 50} ${g.devFt > 0 ? 'sopra' : 'sotto'}`;
+  const vnavLbl = !arr ? 'Discesa per l’arrivo' : g?.state === 'crociera' && !arr.climbLater ? `Inizio discesa ${arr.name}` : `Profilo ${arr.name} (ft)`;
   const st = sunTimes(localDate(now), f.pos.lat, f.pos.lon, ui.pilot.value), lightMin = (st.dayEnd - now) / 60000;
   const tm = state.timers, rem = reminderState(tm.reminder, now), fe = c.fuel;
   const q = state.wx ? nearestQnh(state.wx.stations, f.pos) : null;
@@ -1579,7 +1600,8 @@ function instValues(c) {
   return {
     gs: ['Velocità al suolo', `${Math.round(f.gsKt)} kt`],
     alt: [f.source === 'sim' ? 'Quota simulata' : f.altLabel || 'Quota GPS', `${Math.round(f.altFt / 10) * 10} ft`, f.altFt < c.terr ? 'crit' : ''],
-    agl: ['Sopra il terreno', Number.isFinite(c.terr) ? `${Math.round(f.altFt - c.terr)} ft` : '—', c.airborne && f.altFt - c.terr < 500 && !c.nearField ? 'crit' : ''],
+    // altezza sul terreno: «incerto» se l'incertezza della quota è almeno metà dell'altezza (alerts.js)
+    agl: [ag.uncFt ? `Sopra il terreno ±${ag.uncFt}` : 'Sopra il terreno', ag.text, c.airborne && f.altFt - c.terr < 500 && !c.nearField ? 'crit' : ''],
     trk: ['Rotta seguita', f.gsKt > 5 ? `${deg3(f.trk - dec)}° M` : '—'],
     next: [nw ? `Prossimo: ${nw.p.name || 'P' + (nw.i + 1)}` : 'Prossimo punto', nw ? `${c.distNw.toFixed(1).replace('.', ',')} NM` : '—'],
     brg: [nw ? `Rotta per ${nw.p.name || 'P' + (nw.i + 1)}` : 'Rotta al prossimo', nw ? `${deg3(bearingDeg(f.pos, nw.p) - dec)}° M` : '—'],
@@ -1591,7 +1613,11 @@ function instValues(c) {
     // con «diretto» attivo il fuori rotta non ha senso: la casella mostra la rotta magnetica diretta
     xtk: nw?.direct ? ['Rotta diretta', `${deg3(bearingDeg(f.pos, nw.p) - dec)}° M`] : [c.xt === null || Math.abs(c.xt) < 0.05 ? 'Fuori rotta' : `Fuori rotta a ${c.xt > 0 ? 'destra' : 'sinistra'}`, c.xt === null ? '—' : Math.abs(c.xt) < 0.05 ? 'in rotta' : `${Math.abs(c.xt).toFixed(1).replace('.', ',')} NM`, c.xt !== null && Math.abs(c.xt) > 1 ? 'crit' : ''],
     vs: ['Variometro', Number.isFinite(c.vs) ? `${c.vs > 0 ? '+' : c.vs < 0 ? '−' : ''}${Math.abs(Math.round(c.vs / 10) * 10)} ft/min` : '—'],
-    vsr: [arrF ? `Rateo per ${arrF.icao || titleCaseIt(arrF.name)} +1000 ft` : 'Rateo per l’arrivo', Number.isFinite(tgt) && f.gsKt > 20 ? (f.altFt <= tgt ? 'in quota' : `−${Math.round(-requiredVsFpm(f.altFt, tgt, dDest, f.gsKt) / 10) * 10} ft/min`) : '—'],
+    // rateo per essere alla quota di circuito sopra il campo d'arrivo, lungo la rotta che resta (descent.js)
+    vsr: [arr ? `Rateo per ${arr.name}` : 'Rateo per l’arrivo', g ? (g.state === 'in quota' ? 'in quota' : `−${Math.round(-g.vsrFpm / 10) * 10} ft/min`) : '—', g?.steep ? 'crit' : ''],
+    vnav: [vnavLbl, vnavTxt, g?.steep && !arr.climbLater ? 'crit' : ''],
+    msa: ['Quota sicura qui', Number.isFinite(f.safeHere) ? `${fmtFt(f.safeHere)} ft` : '—'],
+    esa: ['Quota sicura sulla rotta', Number.isFinite(esa) ? `${fmtFt(esa)} ft` : '—'],
     vds: ['Limite VDS qui', pilot === 'basico' ? `${Math.round(c.vdsLim / 10) * 10} ft` : 'non VDS', pilot === 'basico' && f.altFt > c.vdsLim ? 'crit' : ''],
     light: ['Luce restante', lightMin > 0 ? fmtDurIt(lightMin) : 'notte', lightMin < 30 ? 'crit' : ''],
     ftime: ['Tempo di volo', f.ph.takeoffAt ? fmtDurIt((now - f.ph.takeoffAt) / 60000) : 'a terra'],
@@ -1606,7 +1632,7 @@ function instValues(c) {
 }
 function renderInstruments(c) {
   const v = instValues(c);
-  $('instruments').innerHTML = (state.inst || instDefault()).map((k, i) => { const [l, val, cls] = v[k] || ['', '']; return `<button type="button" class="${cls || ''}${k === 'none' ? ' empty' : ''}" data-slot="${i}" title="Tocca per scegliere il dato"><small>${esc(l)}</small><strong>${esc(val)}</strong></button>`; }).join('');
+  $('instruments').innerHTML = (state.inst || instDefault()).map((k, i) => { const [l, val, cls] = v[k] || ['', '']; return `<button type="button" class="${cls || ''}${k === 'none' ? ' empty' : ''}" data-slot="${i}" title="${esc(l)}${val ? `: ${esc(val)}` : ''} · tocca per scegliere il dato"><small>${esc(l)}</small><strong>${esc(val)}</strong></button>`; }).join('');
 }
 $('instruments').addEventListener('click', e => {
   const b = e.target.closest('[data-slot]'); if (!b) return;
@@ -1657,50 +1683,67 @@ function flyTick() {
   // incertezza verticale: precisione dichiarata dal GPS (minimo 100 ft), 150 ft per la barometrica esterna, zero in simulazione
   const unc = f.source === 'sim' ? 0 : /barometrica/i.test(f.altLabel || '') ? 150 : Math.max(100, Number.isFinite(f.gpsAltAcc) ? f.gpsAltAcc : 250);
   const vsNow = verticalSpeedFpm(f.alts), nearField = nearFieldLow(f.pos, f.altFt), nf = nearestFields(f.pos, 1)[0];
-  // in zona del campo la quota prevista non scende sotto quella del campo; VDS non avanzato: attenzione a 150 ft
+  // in zona del campo la quota prevista non scende sotto quella del campo. Margine e anticipo degli avvisi di terreno:
+  // scelti dal pilota (alerts.js; predefiniti 300 ft, 150 ft per il VDS non avanzato, e 120 s)
+  const tcfg = terrainAlertConfig(state.alertSet, pilot);
   const la = lookahead({ pos: f.pos, trackDeg: f.trk, gsKt: f.gsKt, altFt: f.altFt, minutes: 5, stepSec: 10, pilot, qnh: qnh(), airspaces: checkAirspaces(), terrain, day: d, uncFt: unc, obstacles: state.feats?.obstacles || [], obstacleTopFt, vsFpm: airborne ? vsNow : 0,
-    floorFt: nearField && nf ? nf.a.elevM * FT : -Infinity, warnAglFt: pilot === 'basico' ? 150 : 300, turnRateDps: airborne ? turnRate : 0 });
+    floorFt: nearField && nf ? nf.a.elevM * FT : -Infinity, warnAglFt: tcfg.warnAglFt, turnRateDps: airborne ? turnRate : 0, terrainWarnS: tcfg.warnS, terrainCritS: tcfg.critS });
   // A terra nessun avviso di terreno o ostacolo; vicino a un campo e sotto 1000 ft sul campo restano solo quelli gravi
   // (si è dentro il terreno o l'ostacolo), così decollo e atterraggio non suonano di continuo.
-  f.events = la.events.filter(e => !['terrain', 'obstacle'].includes(e.kind) || (airborne && (e.lvl === 'crit' || !nearField)));
+  f.events = filterTerrainEvents(la.events.filter(e => !['terrain', 'obstacle'].includes(e.kind) || (airborne && (e.lvl === 'crit' || !nearField))), tcfg);
   // spazi per cui il pilota ha confermato l'autorizzazione (o il contatto): restano in elenco, senza voce né banda rossa
   for (const e of f.events) if (e.airspace && f.acked?.has(e.airspace.id)) e.acked = true;
   f.inside = la.inside;
+  // spazi attorno (alerts.js): evidenziati sulla carta entro 5 NM e 1000 ft; avviso «vicino» entro 2 NM con la quota
+  // dentro i limiti (o entro l'incertezza), se non c'è già l'avviso «davanti» o la conferma del pilota
+  const ahead = new Set(f.events.filter(e => e.airspace).map(e => e.airspace.id));
+  f.around = airspacesAround({ pos: f.pos, altFt: f.altFt, trackDeg: f.gsKt > 5 ? f.trk : NaN, airspaces: checkAirspaces(), terrain, qnh: qnh(), pilot });
+  f.emph = emphasisIds(f.emph, f.around);
+  f.near = airborne ? f.around.filter(x => isNear(x, unc) && !ahead.has(x.a.id) && !f.acked?.has(x.a.id)) : [];
+  f.unc = unc;
   const vdsLim = pilot === 'basico' ? terrain.maxWithinFt(f.pos.lon, f.pos.lat) + d.vdsAgl : NaN;
   const nw = nextWaypoint();
   const distNw = nw ? distM(f.pos, nw.p) / NM : NaN, ete = nw && f.gsKt > 5 ? distNw / f.gsKt * 60 : NaN;
   const xt = nw && !nw.direct && nw.i > 0 ? (Number.isFinite(nw.xtM) ? nw.xtM : crossTrackM(state.route[nw.i - 1], nw.p, f.pos)) / NM : null;
   const ac = currentAircraft(), tm = state.timers;
+  arrivalStep(nw, airborne, d, ac);
   const fuel = f.ph.takeoffAt ? fuelEstimate({ fuelL: tm.fuelL, flowLh: ac.fuelFlowLh, flightMin: (now - f.ph.takeoffAt) / 60000, reserveMin: Number(state.nl.st.reserveMin) || 30 }) : null;
   const destP = state.route.length > 1 ? state.route.at(-1) : null;
-  f.extra = [...fuelWarnings(fuel, destP && f.gsKt > 20 ? distM(f.pos, destP) / NM / f.gsKt * 60 : NaN, Number(state.nl.st.reserveMin) || 30)];
-  const ctx = { now, nw, distNw, ete, xt, terr, vdsLim, airborne, nearField, fuel, vs: vsNow, wind: windHere(f.pos, f.altFt) };
+  f.extra = [...fuelWarnings(fuel, destP && f.gsKt > 20 ? (state.direct ? distM(f.pos, destP) / NM : remainingNm(nw)) / f.gsKt * 60 : NaN, Number(state.nl.st.reserveMin) || 30)];
+  const ctx = { now, nw, distNw, ete, xt, terr, vdsLim, airborne, nearField, fuel, vs: vsNow, wind: windHere(f.pos, f.altFt), unc };
   f.wind = ctx.wind;
+  if (!f.slowAt || Date.now() - f.slowAt > 3000) { f.slowAt = Date.now(); slowFlightData(); }
   renderInstruments(ctx);
   checkReminder(now);
   checkPointReminders(now, airborne);
   updateTraffic();
   // terreno colorato rispetto all'aereo, solo in volo e fuori dalla zona del campo
-  setHazard(airborne && !nearField, f.altFt);
+  // (spento senza quota: il colore direbbe il falso)
+  setHazard(airborne && !nearField && !f.lost && Number.isFinite(f.altFt), f.altFt);
   // avviso grande per l'evento più vicino e grave
   // un solo avviso principale, per priorità: terreno e ostacoli, poi limite VDS, poi spazi aerei; a parità il più vicino
   const PRI = { terrain: 0, obstacle: 0, vds: 1, airspace: 2 };
   const top = f.events.filter(e => e.lvl === 'crit' && !e.acked).sort((a, b) => (PRI[a.kind] ?? 3) - (PRI[b.kind] ?? 3) || a.t - b.t)[0];
-  const big = $('alertbig');
-  if (top && top.t <= 120) { big.style.display = 'block'; big.textContent = eventSpeech(top); }
-  else if (f.remindMsg && now - f.remindMsg.t < 20000) { big.style.display = 'block'; big.textContent = f.remindMsg.text; }
+  // Un tocco sull'avviso lo conferma: sparisce per 30 s e la voce non lo ripete; torna se peggiora (un altro evento o
+  // da attenzione a grave) o se dopo 30 s c'è ancora. L'elenco degli avvisi lo mostra sempre.
+  const big = $('alertbig'), topKey = top ? alertKey(top) : '', acked = top && f.bigAck?.key === topKey && performance.now() < f.bigAck.until;
+  if (top && top.t <= 120 && !acked) { big.style.display = 'block'; big.dataset.key = topKey; big.innerHTML = `${esc(eventSpeech(top))}<small>Tocca per confermare</small>`; }
+  else if (f.remindMsg && now - f.remindMsg.t < 20000) { big.style.display = 'block'; big.dataset.key = ''; big.textContent = f.remindMsg.text; }
   else big.style.display = 'none';
   // voce: ogni evento una sola volta (ripetuto se si riavvicina sotto i 30 s)
   if (state.voice) for (const e of f.events) {
     if (e.t > 120 || e.lvl === 'info' || e.acked) continue;
     const key = e.airspace ? e.airspace.id : `${e.kind}-${e.lvl}`, prev = f.spoken.get(key);
-    if (prev === undefined || (prev > 40 && e.t <= 30)) { f.spoken.set(key, e.t); say(eventSpeech(e), e.lvl); }
+    const quiet = f.bigAck?.key === alertKey(e) && performance.now() < f.bigAck.until;
+    if (prev === undefined || (prev > 40 && e.t <= 30 && !quiet)) { f.spoken.set(key, e.t); say(eventSpeech(e), e.lvl); }
   }
+  // spazi vicini: una volta per spazio e per volo, a voce bassa (senza toni)
+  if (state.voice && state.alertSet.near) for (const x of f.near) { const k = `near-${x.a.id}`; if (!f.spoken.has(k)) { f.spoken.set(k, 0); say(nearSpeech(x), 'info'); } }
   for (const w of f.extra) if (!f.spoken.has(w.title)) { f.spoken.set(w.title, 0); say(w.title, w.lvl); }
   updateHighlight();
   f.fixPerf = performance.now(); buildPlane(); recordTrack(now); buildTrail();
   ensureTerrainFor(boundsAround([f.pos], 25));
-  if (!f.glideAt || Date.now() - f.glideAt > 3000) { f.glideAt = Date.now(); buildGlide(); renderNearest(); renderEmergency(); }
+  if (!f.glideAt || Date.now() - f.glideAt > 3000) { f.glideAt = Date.now(); buildGlide(); renderNearest(); renderEmergency(); buildAround(); }
   buildDirect();
   if (state.view === 'fly') { renderFlyWarnings(); drawAheadProfile(); }
   if (state.view === 'radio') renderRadio();
@@ -1708,6 +1751,75 @@ function flyTick() {
   // carta libera: torna da sola sull'aereo dopo 30 s senza tocchi (il mirino resta per tornare subito)
   if (state.view === 'fly' && !f.follow && !state.review && !f.hold && performance.now() - lastInteract > 30000) setFollow(true);
   followCamera();
+}
+// Chiave di un avviso: stesso tipo, stessa gravità, stesso spazio (la conferma vale finché l'avviso non cambia)
+const alertKey = e => `${e.kind}-${e.lvl}-${e.airspace?.id || ''}`;
+$('alertbig').addEventListener('click', () => {
+  const f = state.fly, big = $('alertbig');
+  if (f.lost) f.lostAckUntil = performance.now() + 60000;
+  else if (big.dataset.key) f.bigAck = { key: big.dataset.key, until: performance.now() + 30000 };
+  else f.remindMsg = null;
+  big.style.display = 'none';
+});
+// Distanza che resta all'ultimo punto lungo la rotta (prossimo punto, poi i tratti che seguono), in NM
+function remainingNm(nw) {
+  const f = state.fly, R = state.route;
+  if (!f.pos || R.length < 2) return NaN;
+  let m = nw && !nw.direct ? distM(f.pos, nw.p) : distM(f.pos, R.at(-1));
+  if (nw && !nw.direct && nw.i >= 0) for (let k = nw.i; k < R.length - 1; k++) m += distM(R[k], R[k + 1]);
+  return m / NM;
+}
+// Campo d'arrivo, discesa guidata (descent.js) e «cinquecento» (alerts.js). Arrivo: il campo di «Diretto» se è un campo,
+// altrimenti il campo sull'ultimo punto della rotta; distanza lungo la rotta che resta. Obiettivo come in pianificazione:
+// quota di circuito sopra il campo (1000 ft; per il VDS non avanzato al massimo il limite del giorno) con il rateo di
+// discesa del profilo dell'aereo. Gli annunci di discesa tacciono se un tratto che resta chiede di salire.
+function arrivalStep(nw, airborne, d, ac) {
+  const f = state.fly, R = state.route;
+  let field = null, distNm = NaN, climbLater = false;
+  if (state.direct) { if (Number.isFinite(state.direct.elevM)) { field = state.direct; distNm = distM(f.pos, field) / NM; } }
+  else if (R.length > 1 && (field = fieldAt(state.feats, R.at(-1)))) {
+    distNm = remainingNm(nw);
+    // tratti dopo quello attivo che chiedono di salire oltre 300 ft sopra la quota attuale: niente annunci di discesa
+    for (let k = nw && nw.i > 0 ? nw.i : 1; k < R.length - 1; k++) if (legAltFt(R, k, cruise()) > f.altFt + 300) climbLater = true;
+  }
+  if (!field) { f.dg = null; f.arr = null; return; }
+  const circuitFt = ui.pilot.value === 'basico' ? Math.min(1000, d.vdsAgl) : 1000, rate = ac.descentFpm || PLANNING_DEFAULTS.descentFpm;
+  const targetFt = field.elevM * FT + circuitFt, name = field.icao || titleCaseIt(field.name);
+  f.arr = { field, name, distNm, targetFt, circuitFt, rate, climbLater };
+  f.dg = descentGuide({ altFt: f.altFt, targetFt, distNm, gsKt: f.gsKt, rateFpm: rate });
+  if (!airborne) return;
+  if (state.voice && state.alertSet.tod && !climbLater) for (const c of descentCues(f.dg)) {
+    const k = `${c}-${field.id}`;
+    if (!f.spoken.has(k)) { f.spoken.set(k, 0); f.spoken.set(`tod-1-${field.id}`, 0); say(c === 'tod-1' ? `Inizio discesa per ${name} tra un minuto.` : `Inizia la discesa per ${name}: ${rate} piedi al minuto.`, 'info'); }
+  }
+  const r = call500Step(f.c5, f.altFt - field.elevM * FT, distM(f.pos, field) / NM); f.c5 = r.st;
+  if (r.fire && state.alertSet.call500) say('Cinquecento.', 'info');
+}
+// Dati che cambiano lentamente, ogni 3 s: quota sicura qui (rilievo e ostacoli più alti entro 5 km + 1000 ft) e tempo
+// all'uscita dagli spazi in cui si è, proseguendo diritti alla quota attuale
+function slowFlightData() {
+  const f = state.fly;
+  if (!f.pos) return;
+  let ob = -Infinity;
+  for (const o of state.feats?.obstacles || []) {
+    if (Math.abs(o.lat - f.pos.lat) > 0.05 || Math.abs(o.lon - f.pos.lon) > 0.07 || distM(o, f.pos) > SAFE_RADIUS_KM * 1000) continue;
+    const t = obstacleTopFt(o); if (t > ob) ob = t;
+  }
+  const tm = terrain.maxWithinFt(f.pos.lon, f.pos.lat, SAFE_RADIUS_KM);
+  f.safeHere = Number.isFinite(tm) && !terrain.demo ? safeHereFt(tm, ob) : NaN;
+  f.exits = new Map((f.inside || []).map(a => [a.id, exitTimeS({ pos: f.pos, trackDeg: f.trk, gsKt: f.gsKt, altFt: f.altFt, a, terrain, qnh: qnh() })]));
+}
+// Limiti verticali scritti sul bordo degli spazi vicini (entro 5 NM e 1000 ft), nel punto del bordo più vicino all'aereo
+// e alla quota dell'aereo dentro i limiti (in 3D si legge sulla parete)
+function buildAround() {
+  groups.around.clear();
+  const f = state.fly;
+  if (!f.pos || !state.proj || state.view !== 'fly' || f.lost) return;
+  for (const x of (f.around || []).filter(x => f.emph?.has(x.a.id)).slice(0, 6)) {
+    const lab = makeLabel(`${limitText(x.a.lower)}–${limitText(x.a.upper)}`, CAT_COLOR[category(x.a)], 0.9);
+    const l = state.proj.toLocal(x.at.lon, x.at.lat), alt = Math.max(x.lo, Math.min(x.hi, f.altFt));
+    lab.position.set(l.x, yOf(alt), l.z); groups.around.add(lab);
+  }
 }
 // Avvisi sonori e a voce (tasto «Voce»). Nell'app Android la voce è quella nativa (plugin Voce): la WebView non ha la
 // sintesi vocale del web e fino alla 0.21.0 l'app restava muta (collaudo 0.21.0, A4). Un avviso grave suona due toni,
@@ -1749,11 +1861,18 @@ function renderFlyWarnings() {
     const ack = e.airspace && e.rule && ['autorizzazione', 'radio', 'transponder', 'verifica'].includes(e.rule.need) ? `<button type="button" class="btn sm" data-ack="${esc(e.airspace.id)}">${e.rule.need === 'autorizzazione' ? 'Ho l’autorizzazione' : e.rule.need === 'verifica' ? 'Verificata: non attiva' : 'In contatto'}</button>` : '';
     return `<div class="warn ${e.lvl}"><b>${esc(title)} ${when}</b>${esc(text)}${c && c.freq ? ` Chiama ${esc(c.unit)} ${esc(c.freq)}.` : ''}${ack ? `<div style="margin-top:6px">${ack}</div>` : ''}</div>`;
   });
-  const inside = (f.inside || []).map(a => `<div class="warn info"><b>Sei dentro: ${esc(a.name)}</b>${esc(limitText(a.lower))}–${esc(limitText(a.upper))}</div>`);
+  const mmss = t => `${Math.floor(t / 60)}:${String(Math.round(t % 60)).padStart(2, '0')}`;
+  const inside = (f.inside || []).map(a => { const t = f.exits?.get(a.id);
+    return `<div class="warn info"><b>Sei dentro: ${esc(a.name)}</b>${esc(limitText(a.lower))}–${esc(limitText(a.upper))}${Number.isFinite(t) ? ` · ne esci tra ${mmss(t)} proseguendo diritto` : f.gsKt >= 20 ? ' · non ne esci nei prossimi 30 minuti proseguendo diritto' : ''}</div>`; });
+  // vicini (entro 2 NM, quota dentro i limiti): distanza, lato, limiti nel punto più vicino, che cosa serve
+  const near = (f.near || []).map(x => {
+    const ack = ['autorizzazione', 'radio', 'transponder', 'verifica'].includes(x.rule.need) ? `<div style="margin-top:6px"><button type="button" class="btn sm" data-ack="${esc(x.a.id)}">${x.rule.need === 'autorizzazione' ? 'Ho l’autorizzazione' : x.rule.need === 'verifica' ? 'Verificata: non attiva' : 'In contatto'}</button></div>` : '';
+    const c = contactInfo(x.a);
+    return `<div class="warn ${x.rule.level === 'crit' ? 'warn' : 'info'}"><b>Vicino: ${esc(x.a.name)}</b>${(Math.round(x.distNm * 10) / 10).toString().replace('.', ',')} NM ${esc(x.side)} · ${esc(limitText(x.a.lower))}–${esc(limitText(x.a.upper))}. ${esc(x.rule.text)}${c.freq ? ` ${esc(c.unit)} ${esc(c.freq)}.` : ''}${ack}</div>`; });
   const extra = (f.extra || []).map(w => `<div class="warn ${w.lvl}"><b>${esc(w.title)}</b>${esc(w.text)}</div>`);
   const zone = f.ph.phase !== 'volo' ? '<div class="warn info"><b>A terra</b>Avvisi di terreno e ostacoli spenti finché non decolli (velocità al suolo oltre 40 kt per 10 s).</div>'
     : nearFieldLow(f.pos, f.altFt) ? '<div class="warn info"><b>Zona del campo</b>Entro 2 NM da un campo e sotto 1000 ft: restano solo gli avvisi di terreno gravi e il rilievo non si colora.</div>' : '';
-  box.innerHTML = extra.join('') + (items.join('') || '<div class="warn ok"><b>Nessun conflitto nei prossimi 5 minuti</b>Alla quota e rotta attuali, con i dati caricati.</div>') + inside.join('') + zone;
+  box.innerHTML = extra.join('') + (items.join('') || (near.length ? '' : '<div class="warn ok"><b>Nessun conflitto nei prossimi 5 minuti</b>Alla quota e rotta attuali, con i dati caricati.</div>')) + near.join('') + inside.join('') + zone;
 }
 $('warnings').addEventListener('click', e => {
   const b = e.target.closest('[data-ack]'); if (!b) return;
@@ -1792,6 +1911,7 @@ function stopFly() {
   $('recenterBtn')?.setAttribute('aria-pressed', 'true');
   f.ph = newPhase(); f.alts = []; f.extra = []; f.remindMsg = null; f.fixT = 0; f.seq = newNavSeq(); f.last = null;
   clearInterval(f.dog); f.dog = null; f.lost = false; f.acked = new Set(); f.gpsErr = 0; f.extFallback = false; f.watchCb = null;
+  f.around = []; f.near = []; f.emph = new Set(); f.dg = null; f.arr = null; f.c5 = undefined; f.bigAck = null; f.lostAckUntil = 0; f.exits = new Map(); f.safeHere = NaN; f.slowAt = 0; groups.around?.clear();
   if (f.fallbackWatch != null) { navigator.geolocation?.clearWatch(f.fallbackWatch); f.fallbackWatch = null; }
   $('instruments').classList.remove('stale'); renderIntegrity();
   setHazard(state.terrPlan, cruise());
@@ -1873,13 +1993,19 @@ function watchdogTick() {
   }
   if (lost !== !!f.lost) {
     f.lost = lost;
-    if (lost) { f.events = []; f.inside = []; say('Attenzione. Posizione GPS persa.', 'crit'); }
+    if (lost) { f.events = []; f.inside = []; f.near = []; f.around = []; f.emph = new Set(); setHazard(false); say('Attenzione. Posizione GPS persa.', 'crit'); }
     else say('Posizione GPS di nuovo disponibile.', 'info');
+    buildPlane(); buildAround(); updateHighlight();
     if (state.view === 'fly') renderFlyWarnings();
   }
   $('instruments').classList.toggle('stale', age > FIX_OLD_S);
   if (lost && state.view === 'fly' && Math.round(age) % 5 === 0) renderFlyWarnings();
-  if (lost) { const big = $('alertbig'); big.style.display = 'block'; big.textContent = `Posizione non aggiornata da ${Math.round(age)} s: avvisi sospesi`; }
+  if (lost) {
+    const big = $('alertbig');
+    if (performance.now() < (f.lostAckUntil || 0)) big.style.display = 'none';
+    else { big.style.display = 'block'; big.dataset.key = ''; big.innerHTML = `Posizione non aggiornata da ${Math.round(age)} s: avvisi sospesi<small>Tocca per nascondere 1 minuto</small>`; }
+    if (planeObj.q) { planeObj.q.visible = !planeObj.q.visible; dirty = true; }   // «?» lampeggiante sull'aereo
+  }
   renderIntegrity();
 }
 // Batteria del tablet (dove il sistema la fornisce)
@@ -3339,6 +3465,8 @@ function showWhats(cx, cy) {
   w.innerHTML = `<div class="wh-h"><span><b>Colonna d'aria</b> <small>${ll.lat.toFixed(4)} N ${ll.lon.toFixed(4)} E</small></span><span>${flyNow2 ? `<button type="button" class="btn sm" data-wh="pin" aria-pressed="false" title="In volo la finestra si chiude da sola dopo 30 s: tocca per tenerla aperta">Tieni aperta</button>` : ''}<button type="button" class="xbtn" data-wh="close" aria-label="Chiudi">${ic('close')}</button></span></div>
     <div class="wh-b"><canvas aria-label="Sezione verticale del punto, in scala" style="height:${Math.max(240, Math.min(380, 150 + air.length * 34))}px"></canvas><div>
       <div class="wh-row"><span>Terreno</span><b>${Number.isFinite(terr) ? Math.round(terr) + ' ft' : '—'}</b></div>
+      ${flyNow2 && state.fly.pos ? (() => { const fp = state.fly.pos, dNm = distM(fp, ll) / NM, ete = state.fly.gsKt > 20 ? dNm / state.fly.gsKt * 60 : NaN;
+        return `<div class="wh-row"><span>Dall'aereo</span><b>${deg3(bearingDeg(fp, ll) - declAt(fp.lon, fp.lat))}° M · ${dNm.toFixed(1).replace('.', ',')} NM${Number.isFinite(ete) ? ` · ${fmtEte(ete)}` : ''}</b></div>`; })() : ''}
       ${lim !== null && Number.isFinite(lim) ? `<div class="wh-row"><span>Limite VDS oggi</span><b>${Math.round(lim)} ft</b></div>` : ''}
       ${routeTxt ? `<div class="wh-row"><span>Dalla rotta</span><b>${routeTxt}</b></div>` : ''}
       ${plan ? `<div class="wh-row"><span>Quota del tratto</span><b>${plan} ft</b></div>` : ''}
@@ -3387,7 +3515,7 @@ function scaleLabels() {
   const h = view.clientHeight || 1, fh = vp.fh || h, c = cam(), big = state.mode === 'beginner' ? 1.15 : 1;
   const perPx = c.isOrthographicCamera ? (c.top - c.bottom) / c.zoom / fh : null;
   const vKm = perPx ? perPx * h : null;
-  for (const g of [groups.labels, groups.route, groups.wx, groups.fc, groups.feat, groups.base, groups.plane, groups.traffic, groups.review]) for (const o of g.children) {
+  for (const g of [groups.labels, groups.route, groups.wx, groups.fc, groups.feat, groups.base, groups.plane, groups.traffic, groups.review, groups.around]) for (const o of g.children) {
     const u = o.userData;
     if (!u.px) continue;
     const anchor = u.anchor || o.getWorldPosition(_v);
@@ -3539,9 +3667,13 @@ function glideOpts() {
 function glideReach(pos, altFt, ratio, brg, maxNm = 30) {
   return glideReachM({ ...glideOpts(), pos, altFt, ratio, brg, maxNm });
 }
-function nearestFields(pos, n = 5) {
+// Pista più lunga del campo (m), NaN se i dati non la dicono
+function rwyMaxM(a) { const L = (a.rwyInfo || []).map(r => r.lenM).filter(x => Number.isFinite(x) && x > 0); return L.length ? Math.max(...L) : NaN; }
+// minRwyM: pista minima scelta dal pilota per l'elenco dei campi vicini. I campi senza lunghezza nei dati restano
+// (segnati «pista non nota»): non si sa che siano troppo corti.
+function nearestFields(pos, n = 5, minRwyM = 0) {
   const F = state.feats?.airports || [];
-  return F.filter(a => FIELD_KINDS.includes(aerodromeKind(a))).map(a => ({ a, d: distM(pos, a), brg: bearingDeg(pos, a) })).sort((x, y) => x.d - y.d).slice(0, n);
+  return F.filter(a => FIELD_KINDS.includes(aerodromeKind(a)) && !(minRwyM > 0 && rwyMaxM(a) < minRwyM)).map(a => ({ a, d: distM(pos, a), brg: bearingDeg(pos, a) })).sort((x, y) => x.d - y.d).slice(0, n);
 }
 const declAt = (lon, lat) => { const g = state.decl; if (!g) return 0; const i = Math.round((lon - g.lon0) / g.step), j = Math.round((lat - g.lat0) / g.step); const k = Math.max(0, Math.min(g.ny - 1, j)) * g.nx + Math.max(0, Math.min(g.nx - 1, i)); return g.d[k] + g.rate[k] * (new Date().getUTCFullYear() + new Date().getUTCMonth() / 12 - g.epoch); };
 function renderNearest() {
@@ -3551,10 +3683,10 @@ function renderNearest() {
   if (!f.pos) { box.innerHTML = '<b>Campi vicini</b><p class="note">Avvia il GPS o la simulazione.</p>'; return; }
   const ac = currentAircraft(), ratio = ac.glideRatio, dec = declAt(f.pos.lon, f.pos.lat);
   // righe stabili: si aggiorna solo il testo, così un tocco su «Diretto» non si perde durante l'aggiornamento
-  const list = nearestFields(f.pos), key = list.map(x => x.a.id).join('|') + (ratio ? 'g' : '');
+  const list = nearestFields(f.pos, 5, state.minRwyM), key = list.map(x => x.a.id).join('|') + (ratio ? 'g' : '') + state.minRwyM;
   if (box.dataset.key !== key) {
     box.dataset.key = key;
-    box.innerHTML = '<b>Campi vicini</b>' + list.map(({ a }) => `<div class="row2"><div class="txt" data-f="${esc(a.id)}"></div><button class="btn" type="button" data-direct="${esc(a.id)}">Diretto</button></div>`).join('')
+    box.innerHTML = `<div class="eh"><b>Campi vicini</b><label class="note">Pista almeno <select data-minrwy aria-label="Pista minima">${[0, 300, 400, 500, 600, 800, 1000].map(v => `<option value="${v}"${v === state.minRwyM ? ' selected' : ''}>${v ? `${v} m` : 'qualsiasi'}</option>`).join('')}</select></label></div>` + list.map(({ a }) => `<div class="row2"><div class="txt" data-f="${esc(a.id)}"></div><button class="btn" type="button" data-direct="${esc(a.id)}">Diretto</button></div>`).join('')
       + `<p class="note" data-gnote></p>`;
   }
   for (const { a, d, brg } of list) {
@@ -3563,7 +3695,7 @@ function renderNearest() {
     const reach = ratio ? glideReach(f.pos, f.altFt, ratio, brg, d / NM + 0.5) >= d - 250 : false;
     const freq = a.freqs.find(x => x.mhz);
     box.querySelector(`.txt[data-f="${CSS.escape(String(a.id))}"]`).innerHTML = `<b>${esc(a.icao || titleCaseIt(a.name))}</b> ${esc(aerodromeKind(a))}${freq ? ' · ' + esc(channelOf(freq.mhz)) : ''}<br>
-      ${(d / NM).toFixed(1).replace('.', ',')} NM · rotta ${String(Math.round((brg - dec + 360) % 360) || 360).padStart(3, '0')}° M${Number.isFinite(ete) ? ` · ${Math.round(ete)} min` : ''} · campo ${Math.round(a.elevM * FT)} ft
+      ${(d / NM).toFixed(1).replace('.', ',')} NM · rotta ${String(Math.round((brg - dec + 360) % 360) || 360).padStart(3, '0')}° M${Number.isFinite(ete) ? ` · ${Math.round(ete)} min` : ''} · campo ${Math.round(a.elevM * FT)} ft · ${Number.isFinite(rwyMaxM(a)) ? `pista ${rwyMaxM(a)} m` : 'pista non nota'}
       ${ratio ? `<br>Planata: ${reach && gl > 0 ? `<b class="ok">arrivi a ${Math.round(gl)} ft sul campo</b>` : '<b class="no">non raggiungibile</b>'}` : ''}`;
     const btn = box.querySelector(`[data-direct="${CSS.escape(String(a.id))}"]`), on = state.direct === a;
     btn.textContent = on ? 'Annulla diretto' : 'Diretto'; btn.classList.toggle('on', on);
@@ -3575,6 +3707,10 @@ function glideNote() {
   if (!ac.glideRatio) return 'Efficienza di planata non indicata nel profilo dell’aereo: planata non calcolata.';
   return `Planata con efficienza ${ac.glideRatio} (${ac.name}) meno ${state.glideMargin} % di margine, ${w ? `vento ${deg3(w.dir)}/${Math.round(w.kt)} kt (${w.src})` : 'senza vento (nessun dato)'}. Arrivo calcolato sul campo, senza circuito.`;
 }
+$('nearest').addEventListener('change', e => {
+  if (!e.target.matches('[data-minrwy]')) return;
+  state.minRwyM = Number(e.target.value) || 0; savePrefs(); renderNearest();
+});
 $('nearest').addEventListener('click', e => {
   const id = e.target.dataset.direct;
   if (id === undefined) return;
@@ -3607,6 +3743,7 @@ function buildGlide() {
   line.computeLineDistances(); groups.glide.add(line);
 }
 groups.glide = wrapGroup(new THREE.Group()); scene.add(groups.glide);
+groups.around = wrapGroup(new THREE.Group()); scene.add(groups.around);
 groups.traffic = wrapGroup(new THREE.Group()); scene.add(groups.traffic);
 groups.review = wrapGroup(new THREE.Group()); scene.add(groups.review);
 groups.trail = wrapGroup(new THREE.Group()); scene.add(groups.trail);
@@ -3875,6 +4012,15 @@ $('trafficAlert').addEventListener('click', e => {
   if (k === 'show' && t?.pos) lookAt(t.pos.lon, t.pos.lat);
   box.style.display = 'none';
 });
+// avvisi in volo (scheda Dati, «Avvisi in volo»)
+{
+  const bind = (id, k, get, set) => { const el = $(id); set(el, state.alertSet[k]); el.addEventListener('change', () => { state.alertSet[k] = get(el); savePrefs(); if (state.fly.pos) flyTick(); }); };
+  const sel = (el, v) => { el.value = String(v); if (el.value !== String(v)) el.selectedIndex = 0; };
+  bind('alMargin', 'margin', el => (el.value === 'auto' ? 'auto' : Number(el.value)), sel);
+  bind('alAhead', 'aheadS', el => Number(el.value), (el, v) => { el.value = String(v); if (!el.value) el.value = '120'; });
+  bind('alSens', 'sens', el => el.value, sel);
+  for (const [id, k] of [['al500', 'call500'], ['alNear', 'near'], ['alTod', 'tod']]) bind(id, k, el => el.checked, (el, v) => { el.checked = v !== false; });
+}
 $('trafficBand').value = String(state.trafficBand);
 $('trafficBand').addEventListener('change', e => { state.trafficBand = Number(e.target.value); savePrefs(); updateTraffic(); });
 

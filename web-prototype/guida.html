@@ -67,7 +67,7 @@ ENAV. Le decisioni le prende il pilota.</div>
   <li><b>Annulla l’ultima modifica</b>: pulsante con la freccia indietro sulla carta e nella lista dei punti
     (<b class="k">Ctrl+Z</b> sulla tastiera). Torna indietro di una modifica alla volta, fino a 50.</li>
   <li>Il <b>cestino</b> toglie il punto; <b>tieni premuto</b> su un punto della carta per vedere la colonna d’aria
-    (spazi aerei sopra quel punto).</li>
+    (spazi aerei sopra quel punto; in volo anche rotta, distanza e tempo dall’aereo a quel punto).</li>
   <li><b>Spazi aerei alti</b>: nella legenda sulla carta, «Spazi fino a» nasconde quelli che iniziano più in alto (di
     solito «crociera + 2500 ft»); restano comunque nei controlli della rotta. Dove più spazi sono uno sopra l’altro, il
     tocco sceglie il più basso; un altro tocco nello stesso punto passa a quello sopra. I limiti sopra il terreno
@@ -124,7 +124,28 @@ dell’aeroclub: confrontali con la scheda di pesata del tuo aereo.</p>
     (o «In contatto»): per quel volo niente più voce né banda rossa per quello spazio.</li>
   <li>«Volo» → <b>Avvia GPS</b> (GPS del tablet o strumento esterno via Bluetooth o USB). «Simula» serve per provare a
     terra lungo la rotta. I comandi del volo stanno in una riga sotto la carta.</li>
-  <li>Le caselle in alto mostrano i dati del volo: toccane una per scegliere un altro dato.</li>
+  <li>Le caselle in alto mostrano i dati del volo: toccane una per scegliere un altro dato. Fra gli altri:
+    <b>Quota sicura qui</b> (1000 ft sopra il rilievo e gli ostacoli più alti entro 5 km), <b>Quota sicura sulla rotta</b>
+    (il minimo più alto dei tratti che restano, come in pianificazione), <b>Discesa per l’arrivo</b> e <b>Rateo per
+    l’arrivo</b>. «Sopra il terreno» scrive «incerto» quando l’incertezza della quota è almeno metà dell’altezza.</li>
+  <li><b>Discesa guidata</b>: con un campo come ultimo punto (o con «Diretto» su un campo) il programma calcola dove
+    iniziare a scendere per essere alla quota di circuito sopra il campo (1000 ft; per il VDS non avanzato al massimo
+    il limite del giorno) con il rateo di discesa del tuo aereo, lungo la rotta che resta. Prima dell’inizio la casella
+    dice fra quanto, dopo se sei sopra o sotto il profilo. Con la voce: «Inizio discesa tra un minuto» e «Inizia la
+    discesa»; se un tratto più avanti chiede di salire, tace. Scendendo a 500 ft sopra il campo d’arrivo, entro 5 NM,
+    la voce dice «Cinquecento».</li>
+  <li><b>Spazi aerei in volo</b>: si evidenziano quelli entro 5 NM e a meno di 1000 ft dalla tua quota, con i limiti
+    scritti sul bordo più vicino; gli altri si attenuano. Entro 2 NM, con la quota dentro i limiti, compare «Vicino:» con
+    distanza e lato (e la voce lo dice una volta). Da dentro uno spazio vedi fra quanto ne esci proseguendo diritto.</li>
+  <li><b>Avviso grande</b>: un tocco lo conferma, sparisce per 30 secondi e la voce non lo ripete; torna se peggiora o se
+    dopo 30 secondi c’è ancora. L’elenco degli avvisi lo mostra sempre.</li>
+  <li><b>GPS perso</b>: sull’aereo lampeggia un punto interrogativo rosso, il rilievo smette di colorarsi e gli avvisi
+    previsti si fermano finché la posizione non torna.</li>
+  <li><b>Avvisi in volo</b> (Impostazioni): margine dal terreno (automatico 300 ft, 150 ft per il VDS; oppure 150, 300,
+    500, 1000 ft), anticipo dell’avviso (60, 90 o 120 s), «solo gravi», e gli annunci a voce («Cinquecento», spazi
+    vicini, inizio discesa).</li>
+  <li><b>Campi</b>: i campi vicini con distanza, rotta, tempo, quota e lunghezza della pista; «Pista almeno» nasconde
+    quelli con la pista più corta (restano quelli di cui i dati non dicono la lunghezza).</li>
   <li>Il rilievo si colora rispetto alla quota dell’aereo: <b>rosso</b> a meno di 100 ft sotto (o sopra), <b>giallo</b>
     tra 100 e 1000 ft sotto. A terra e vicino ai campi sotto 1000 ft resta spento, per non dare falsi allarmi.</li>
   <li><b>Tempi</b>: tempo di volo, cronometro, promemoria periodici e promemoria su un punto della rotta («minuti prima»,

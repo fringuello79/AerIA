@@ -8,7 +8,53 @@ Ogni versione indica il commit da cui è stata creata. Il repository pubblico `f
 0.20.0 (8/11/2026) da un solo commit: le versioni precedenti restano descritte qui, senza commit né pagina di rilascio. Il workflow «App Android» crea in automatico l'etichetta
 (tag) `vX.Y.Z` su quel commit e, per la versione più recente, la pagina di rilascio su GitHub con l'APK.
 
-## [0.22.0] - 2026-11-20
+## [0.23.0] - 2026-11-20
+
+Avvisi in volo più precisi e meno invadenti, discesa guidata, quote sicure. Regole nuove in `alerts.js` e
+`descent.js`, con test a valori calcolati a parte; prove in Chrome in `tools/shot_023.py`.
+
+### Spazi aerei in volo
+- **Evidenza per quota:** si evidenziano gli spazi entro 5 NM e a meno di 1000 ft dalla quota dell'aereo (escono oltre
+  6 NM o 1300 ft, così ai margini non lampeggiano); gli altri si attenuano. I limiti verticali sono scritti sul bordo
+  più vicino all'aereo, anche nella carta 2D.
+- **«Vicino»:** entro 2 NM dal bordo, con la quota dentro i limiti (o entro l'incertezza della quota), compare l'avviso
+  con distanza, lato rispetto alla traccia, limiti, che cosa serve e frequenza; la voce lo dice una volta per volo.
+  Per «Davanti» resta la previsione a 5 minuti.
+- **Dentro uno spazio:** fra quanto se ne esce proseguendo diritto alla quota attuale.
+
+### Terreno e avvisi
+- **Avvisi di terreno regolabili** (Impostazioni → «Avvisi in volo»): margine (automatico 300 ft, 150 ft per il VDS non
+  avanzato; oppure 150, 300, 500, 1000 ft), anticipo dell'avviso di attenzione (60, 90, 120 s) e «solo gravi».
+  Il grave resta entro 60 s.
+- **«Cinquecento»:** scendendo a 500 ft sopra il campo d'arrivo, entro 5 NM, la voce lo annuncia una volta (si riarma
+  risalendo oltre 600 ft).
+- **Tocco sull'avviso grande = conferma:** sparisce per 30 s e la voce non lo ripete; torna se cambia o peggiora.
+  L'avviso «Posizione non aggiornata» si nasconde per un minuto.
+- **GPS perso:** punto interrogativo rosso lampeggiante sull'aereo, niente vettore della traccia, rilievo non colorato
+  (il colore senza posizione direbbe il falso). Il rilievo non si colora nemmeno senza quota.
+- Voce del limite VDS: i piedi da scendere si arrotondano per eccesso (con 44 ft di troppo diceva «Scendi di 0 piedi»).
+- L'avviso grande sta al centro della carta visibile e non finisce più sotto il pannello di destra.
+
+### Discesa e quote
+- **Discesa guidata verso il campo d'arrivo** (ultimo punto della rotta o «Diretto» su un campo): punto d'inizio
+  discesa per arrivare alla quota di circuito sopra il campo con il rateo del profilo dell'aereo, lungo la rotta che
+  resta. Casella «Discesa per l'arrivo» (prima: fra quanto si inizia; dopo: sul profilo, sopra o sotto) e voce
+  «Inizio discesa tra un minuto» e «Inizia la discesa». Tace se un tratto più avanti chiede di salire.
+- **«Rateo per l'arrivo»** con lo stesso obiettivo e la distanza lungo la rotta (prima in linea retta e sempre +1000 ft);
+  rosso se serve più di una volta e mezza il rateo pianificato. Anche «All'arrivo» e l'autonomia contano la rotta che
+  resta.
+- **Caselle «Quota sicura qui»** (1000 ft sopra il rilievo e gli ostacoli più alti entro 5 km) e **«Quota sicura sulla
+  rotta»** (il minimo più alto dei tratti che restano, come in pianificazione).
+- **«Sopra il terreno» onesto:** con l'incertezza della quota scritta accanto; «incerto» quando l'incertezza è almeno
+  metà dell'altezza.
+
+### Altro
+- **Campi vicini filtrati per pista minima** (qualsiasi, 300 … 1000 m) e lunghezza della pista in ogni riga; i campi
+  senza lunghezza nei dati restano, segnati «pista non nota».
+- **Colonna d'aria in volo:** rotta magnetica, distanza e tempo dall'aereo al punto toccato.
+- Caselle degli strumenti: il testo intero compare anche come suggerimento (per i valori lunghi).
+
+## [0.22.0] - 2026-11-20 · commit 42be5d8b7ca1c3e5acdd5cfc177c604a840f4d7e
 
 Collaudo critico della 0.21.0 e studio dei navigatori di riferimento: correzioni di sicurezza e fluidità, più funzioni
 nuove. Ogni correzione è stata riprodotta prima e verificata dopo (test automatici e prove in Chrome).

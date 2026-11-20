@@ -8,6 +8,7 @@ pericoloso, poi le funzioni mancanti, poi la comodità.
 
 | Data | Versione | Che cosa |
 | --- | --- | --- |
+| 20/11/2026 | 0.23.0 | Avvisi in volo: spazi evidenziati per quota con i limiti sul bordo, «vicino» entro 2 NM, tempo all'uscita, avvisi di terreno regolabili (margine, anticipo, solo gravi), «Cinquecento» sul campo d'arrivo, tocco = conferma, GPS perso con «?» e rilievo spento; discesa guidata verso il campo d'arrivo, quote sicure (qui e sulla rotta), altezza sul terreno con incertezza, campi vicini per pista minima |
 | 20/11/2026 | 0.22.0 | Collaudo critico e studio dei navigatori di riferimento: GPS che non si spegne al primo timeout, posizione vecchia dichiarata, semaforo di integrità, tratto attivo con memoria, spazi con limiti dubbi nei controlli, quote dei punti che seguono la crociera, livelli di volo esatti, voce nativa Android con priorità, avvisi di terreno entro 60/120 s con la virata, spazi aerei senza ricostruzioni (fluidità), liste a pagine sfogliabili, consigliere di quota, Pronto al volo, fondovalle nel profilo, colonna d'aria in scala |
 | 8/11/2026 | 0.18.3 | Carburante a bordo su riga propria e riepilogo aggiornato subito; rotta senza tratteggio sovrapposto, una freccia per tratto |
 | 7/11/2026 | 0.18.2 | Rotta dritta e sempre 500 ft sopra il rilievo più alto del tratto (quota alzata in automatico), salita e discesa sul campo tra le montagne, quota raggiunta sul punto, nodi del profilo trascinabili con la casella che segue |
@@ -71,8 +72,13 @@ pericoloso, poi le funzioni mancanti, poi la comodità.
 5. ~~Rivedere il volo dopo l'atterraggio~~ (0.17.0).
 6. Cursore lungo la rotta con meteo, vento e spazi aerei del tratto; righello a due dita.
 7. Controllo dei dati per la rotta (copertura del terreno, età di openAIP e del meteo) con segno verde o giallo.
-8. Campi vicini filtrati (pista dura o erba, lunghezza minima); pista consigliata col vento.
+8. Campi vicini filtrati: ~~lunghezza minima~~ (0.23.0); manca il fondo (i dati non lo hanno); pista consigliata col vento.
 9. Collegamento a un simulatore di volo (posizione via rete) per addestramento e prove a terra.
+
+### B3. Dallo studio di un navigatore dedicato alla cabina (20/11/2026), non ancora fatte
+1. Orientamento della carta a scelta (nord, traccia o rotta in alto; nord in alto oltre una scala) e dettaglio a tre livelli.
+2. Zone personali con un raggio e allarme (paesi da non sorvolare, aree di volo libero).
+3. Vista 3D con nastri di velocità e quota e indicatore di rotta con scala automatica del fuori rotta.
 10. Scadenze del pilota (visita medica, attestato, esperienza recente) e punti utente (campi di fortuna personali).
 11. App per l'orologio: vedi [orologio.md](orologio.md).
 

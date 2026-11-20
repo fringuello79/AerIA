@@ -188,8 +188,9 @@ export function analyseRoute({ route, cruiseFt, pilot, qnh, airspaces, terrain, 
 // continuo e un pilota finisce per spegnerlo (collaudo 0.21.0, C11). Gli spazi aerei restano a 5 minuti.
 // turnRateDps: virata in corso (gradi al secondo, + a destra): la traiettoria prevista segue la virata per al massimo
 // 60 s o 180°, poi prosegue diritta. Entro 120 s il passo è di 5 s (circa 250 m a 95 kt).
+// terrainWarnS / terrainCritS (dalla 0.23.0): anticipo scelto dal pilota (60, 90 o 120 s; alerts.js), grave entro 60 s.
 export const TERRAIN_CRIT_S = 60, TERRAIN_WARN_S = 120;
-export function lookahead({ pos, trackDeg, gsKt, altFt, minutes = 5, stepSec = 10, pilot, qnh, airspaces, terrain, day, uncFt = 0, obstacles = [], obstacleTopFt = null, vsFpm = 0, floorFt = -Infinity, warnAglFt = 300, turnRateDps = 0 }) {
+export function lookahead({ pos, trackDeg, gsKt, altFt, minutes = 5, stepSec = 10, pilot, qnh, airspaces, terrain, day, uncFt = 0, obstacles = [], obstacleTopFt = null, vsFpm = 0, floorFt = -Infinity, warnAglFt = 300, turnRateDps = 0, terrainWarnS = TERRAIN_WARN_S, terrainCritS = TERRAIN_CRIT_S }) {
   const events = [], seen = new Set();
   const nowInside = new Set(airspacesAt(pos.lon, pos.lat, terrain.elevFt(pos.lon, pos.lat), airspaces, qnh).filter(h => altFt >= h.lo && altFt <= h.hi).map(h => h.a));
   const v = Math.max(gsKt, 0) * KT;
@@ -214,19 +215,19 @@ export function lookahead({ pos, trackDeg, gsKt, altFt, minutes = 5, stepSec = 1
     const p = cur, terrC = terrain.elevFt(p[0], p[1]), terr = terrain.maxNearFt ? terrain.maxNearFt(p[0], p[1]) : terrC, a = Math.max(floorFt, altFt + vs * Math.min(t, vs > 0 ? 120 : 60) / 60); // quota prevista a t
     // terreno: il primo punto con poco margine (attenzione) e, se più avanti si finisce dentro il rilievo, anche quello
     // (grave). Prima il solo avviso di attenzione nascondeva quello grave che veniva dopo.
-    if (t <= TERRAIN_WARN_S && Number.isFinite(terr) && a - terr < warnAglFt + uncFt) {
-      const lvl = a < terr && t <= TERRAIN_CRIT_S ? 'crit' : 'warn';
+    if (t <= terrainWarnS && Number.isFinite(terr) && a - terr < warnAglFt + uncFt) {
+      const lvl = a < terr && t <= terrainCritS ? 'crit' : 'warn';
       if (!seen.has('terrain') || (lvl === 'crit' && !seen.has('terrain-crit'))) {
         seen.add('terrain'); if (lvl === 'crit') seen.add('terrain-crit');
         events.push({ kind: 'terrain', t, distNm: v * t / NM, lvl, clearance: a - terr });
       }
     }
     // ostacoli entro 600 m dal punto previsto con meno di 500 ft di margine (più l'incertezza della quota)
-    if (obstacleTopFt && t <= TERRAIN_WARN_S && !seen.has('obstacle-crit')) for (const o of obstacles) {
+    if (obstacleTopFt && t <= terrainWarnS && !seen.has('obstacle-crit')) for (const o of obstacles) {
       if (Math.abs(o.lat - p[1]) > 0.006 || Math.abs(o.lon - p[0]) > 0.008 || distM(o, { lon: p[0], lat: p[1] }) > 600) continue;
       const top = obstacleTopFt(o);
       if (a - top < 500 + uncFt) {
-        const lvl = a < top && t <= TERRAIN_CRIT_S ? 'crit' : 'warn';
+        const lvl = a < top && t <= terrainCritS ? 'crit' : 'warn';
         if (lvl === 'warn' && seen.has('obstacle')) continue;
         seen.add('obstacle'); if (lvl === 'crit') seen.add('obstacle-crit');
         events.push({ kind: 'obstacle', t, distNm: v * t / NM, lvl, clearance: a - top, obstacle: o }); break;
@@ -258,7 +259,8 @@ export function eventSpeech(e) {
   const quando = e.t < 15 ? 'adesso' : `tra ${mm ? mm + (mm === 1 ? ' minuto' : ' minuti') : ''}${mm && ss ? ' e ' : ''}${ss ? ss + ' secondi' : ''}`;
   if (e.kind === 'terrain') return `Attenzione terreno ${quando}. Sali.`;
   if (e.kind === 'obstacle') return `Ostacolo ${quando}. Sali.`;
-  if (e.kind === 'vds') return `Limite VDS superato ${quando}. Scendi di ${Math.round(e.over / 100) * 100} piedi.`;
+  // per eccesso ai 100 ft: con 44 ft di troppo si dice «100», non «0» (fino alla 0.22.0 diceva «Scendi di 0 piedi»)
+  if (e.kind === 'vds') return `Limite VDS superato ${quando}. Scendi di ${Math.max(100, Math.ceil(e.over / 100) * 100)} piedi.`;
   const a = e.airspace, cat = category(a);
   const what = cat === 'P' ? 'zona proibita' : cat === 'R' ? 'zona regolamentata' : cat === 'Q' ? 'zona pericolosa' : cat === 'CTRL' ? 'spazio controllato' : 'zona';
   return e.marginal ? `Vicino al limite di ${what} ${a.name} ${quando}.` : `${what} ${a.name} ${quando}.`;
