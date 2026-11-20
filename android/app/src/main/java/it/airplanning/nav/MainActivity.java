@@ -11,6 +11,8 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         // modulo proprio dell'app: aggiornamento automatico (AggiornamentiPlugin)
         registerPlugin(AggiornamentiPlugin.class);
+        // avvisi a voce nativi (la WebView non ha la sintesi vocale del web)
+        registerPlugin(VocePlugin.class);
         super.onCreate(savedInstanceState);
         // schermo sempre acceso finché l'app è in primo piano (pianificazione e volo); Android lo toglie da solo
         // quando l'app va in secondo piano

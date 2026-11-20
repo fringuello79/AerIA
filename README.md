@@ -14,7 +14,7 @@ piano di volo, assistente che controlla di continuo il volo pianificato e quello
 
 ## Stato
 
-Versione attuale: **0.20.0** (prototipo). Registro delle versioni: [CHANGELOG.md](CHANGELOG.md); come si rilascia: [docs/rilasci.md](docs/rilasci.md).
+Versione attuale: **0.22.0** (prototipo). Registro delle versioni: [CHANGELOG.md](CHANGELOG.md); come si rilascia: [docs/rilasci.md](docs/rilasci.md).
 
 | Parte | Stato |
 | --- | --- |
@@ -25,7 +25,7 @@ Versione attuale: **0.20.0** (prototipo). Registro delle versioni: [CHANGELOG.md
 | Registro e piano di lavoro | [docs/roadmap.md](docs/roadmap.md) |
 | Valutazione critica | Errori, verifiche e rischi aperti: [docs/valutazione-critica.md](docs/valutazione-critica.md) |
 | Pacchetto dati Marsica e Fucino | Terreno Copernicus 90 m, spazi aerei, aeroporti, ostacoli e punti di riporto openAIP, geoide EGM96, incluso nell'app |
-| Test automatici | 94 test su quote, terreno, rampe, geoide, regole VDS, spazi aerei, radio, meteo, strumenti e piano di volo: `npm test`; prove in Chrome: `tools/shot.py`, `tools/shot_centro.py` |
+| Test automatici | 169 test su quote, terreno, rampe, geoide, regole VDS, spazi aerei, tratto attivo, consigliere di quota, radio, meteo, strumenti e piano di volo: `npm test`; prove in Chrome: `tools/shot.py`, `tools/shot_centro.py` |
 | App Android | Compilata da GitHub Actions a ogni modifica: [docs/android.md](docs/android.md) |
 | Fonti dati e licenze | [docs/fonti-dati.md](docs/fonti-dati.md) |
 | Richiesta dati ufficiali a ENAV (AIFS, NOTAM) | Email preparate, in attesa di invio e risposta |

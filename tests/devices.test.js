@@ -81,9 +81,9 @@ test('GDL90: ownship, posizione e quota di pressione', () => {
 
 test('fusione: barometrica prima del GPS, avviso se divergono', () => {
   assert.equal(qnhAltitude(5000, 1013.25), 5000);
-  assert.equal(qnhAltitude(5000, 1023.25), 5270);
+  assert.ok(Math.abs(qnhAltitude(5000, 1023.25) - 5262.2) < 0.5);   // formula ISA esatta (non 27 ft/hPa)
   const a = fuse({ gps: { valid: true, lat: 42, lon: 13, altFt: 5300 }, baro: { pressAltFt: 5000 }, qnh: 1023.25 });
-  assert.equal(a.altFt, 5270);
+  assert.ok(Math.abs(a.altFt - 5262.2) < 0.5);
   assert.match(a.altSource, /barometrica/);
   assert.equal(a.notes.length, 0);
   const b = fuse({ gps: { valid: true, lat: 42, lon: 13, altFt: 5400 }, baro: { pressAltFt: 5000 }, qnh: 1013.25 });
@@ -91,4 +91,13 @@ test('fusione: barometrica prima del GPS, avviso se divergono', () => {
   assert.equal(fuse({ gps: { valid: true, altFt: 5300 }, baro: { pressAltFt: 5000 }, qnh: 1013.25 }).notes.length, 0); // 300 ft: entro la soglia
   const c = fuse({ gps: { valid: true, lat: 42, lon: 13, altFt: 5300 }, qnh: 1013 });
   assert.equal(c.altSource, 'GPS');
+});
+
+test('GGA con la quota vuota: quota non nota (non 0 ft)', async () => {
+  const { parseNmea } = await import('../web-prototype/src/devices.js');
+  const body = 'GPGGA,123519,4203.000,N,01326.000,E,1,05,1.2,,M,,M,,';
+  let x = 0; for (const ch of body) x ^= ch.charCodeAt(0);
+  const m = parseNmea(`$${body}*${x.toString(16).toUpperCase().padStart(2, '0')}`);
+  assert.equal(m.type, 'GGA');
+  assert.ok(Number.isNaN(m.altMslM));
 });

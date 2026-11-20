@@ -28,6 +28,19 @@ export function phaseStep(s, fix, opt = PHASE_DEFAULTS) {
 
 // ---------------------------------------------------------------- tempi
 export const fmtDur = min => (Number.isFinite(min) && min >= 0 ? `${Math.floor(min / 60)}:${String(Math.floor(min % 60)).padStart(2, '0')}` : '—');
+// Durate per l'interfaccia, senza ambiguità tra ore:minuti e minuti:secondi (collaudo 0.21.0, C2): «24 min», «1 h 05».
+// fmtEte per i tempi al punto, più fini sotto i 10 minuti: «45 s», «4′30″». fmtDur (h:mm) resta per i moduli stampati.
+// arrotondamento per difetto (tempo trascorso, autonomia, luce: mai più minuti di quelli veri); «round» per le stime
+export const fmtDurIt = (min, how = 'floor') => {
+  if (!Number.isFinite(min) || min < 0) return '—';
+  const m = how === 'round' ? Math.round(min) : Math.floor(min + 1e-9);
+  return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}`;
+};
+export const fmtEte = min => {
+  if (!Number.isFinite(min) || min < 0) return '—';
+  const s = Math.round(min * 60);
+  return s < 60 ? `${s} s` : s < 600 ? `${Math.floor(s / 60)}′${String(s % 60).padStart(2, '0')}″` : fmtDurIt(min, 'round');
+};
 export const fmtMS = sec => (Number.isFinite(sec) ? `${sec < 0 ? '−' : ''}${Math.floor(Math.abs(sec) / 60)}:${String(Math.floor(Math.abs(sec) % 60)).padStart(2, '0')}` : '—');
 
 // Promemoria periodico (es. controllo carburante o cambio serbatoio ogni 30 min): { everyMin, startAt, label }.

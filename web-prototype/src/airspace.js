@@ -2,7 +2,22 @@
 // Spazi aerei: lettura (openAIP GeoJSON, OpenAir), limiti verticali, categorie e contatti radio.
 import { FT, arcPoints, bearingDist } from './geo.js';
 
-export const FT_PER_HPA = 27; // correzione QNH per i livelli di volo (approssimazione ISA vicino al livello del mare)
+export const FT_PER_HPA = 27; // pendenza approssimata vicino al livello del mare: solo per spiegazioni, non per i calcoli
+
+// Quota (ft) che un altimetro regolato su qnh indica alla pressione dell'altitudine di pressione paFt (atmosfera ISA,
+// formula esatta). Prima si usavano 27 ft/hPa fissi: errore fino a ±55 ft a FL 105 e +99 ft a FL 195 con QNH alto, nel
+// verso meno prudente (collaudo 0.21.0, D1). Inversa: pressureAltFt. Codice di fringuello79 di Avezzano.
+const ISA_T0 = 288.15, ISA_L = 0.0065, ISA_E = 5.25588, ISA_P0 = 1013.25;
+export function qnhAltFt(paFt, qnh = ISA_P0) {
+  if (qnh === ISA_P0) return paFt;
+  const p = ISA_P0 * (1 - ISA_L * (paFt / FT) / ISA_T0) ** ISA_E;
+  return ISA_T0 / ISA_L * (1 - (p / qnh) ** (1 / ISA_E)) * FT;
+}
+export function pressureAltFt(altFt, qnh = ISA_P0) {
+  if (qnh === ISA_P0) return altFt;
+  const p = qnh * (1 - ISA_L * (altFt / FT) / ISA_T0) ** ISA_E;
+  return ISA_T0 / ISA_L * (1 - (p / ISA_P0) ** (1 / ISA_E)) * FT;
+}
 
 // Codici numerici openAIP, verificati sul file Italia del 6/11/2026 confrontando codici e nomi:
 // 0 altro, 1 R, 2 Q, 3 P, 4 CTR, 5 TMZ, 6 RMZ, 7 TMA, 8 TRA, 9 TSA, 10 FIR, 13 ATZ, 14 MATZ, 26 CTA, 28 attività, 29 parchi.
@@ -54,7 +69,7 @@ export function limitFt(l, terrFt, qnh = 1013.25) {
   if (l.value >= 99999) return 99999;
   const v = l.unit === 'M' ? l.value * FT : l.unit === 'FL' ? l.value * 100 : l.value;
   if (l.ref === 'GND') return (Number.isFinite(terrFt) ? terrFt : 0) + v;
-  if (l.ref === 'STD' || l.unit === 'FL') return v + (qnh - 1013.25) * FT_PER_HPA;
+  if (l.ref === 'STD' || l.unit === 'FL') return qnhAltFt(v, qnh);
   return v;
 }
 

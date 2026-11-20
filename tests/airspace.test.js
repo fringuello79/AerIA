@@ -16,7 +16,8 @@ test('conversione dei limiti in ft AMSL', () => {
   assert.equal(limitFt({ value: 1500, unit: 'FT', ref: 'GND' }, 2300), 3800);
   assert.equal(limitFt({ value: 4500, unit: 'FT', ref: 'MSL' }, 2300), 4500);
   assert.equal(limitFt({ value: 105, unit: 'FL', ref: 'STD' }, 0, 1013.25), 10500);
-  assert.equal(limitFt({ value: 105, unit: 'FL', ref: 'STD' }, 0, 1023.25), 10770); // +10 hPa = +270 ft
+  // formula ISA esatta (valore calcolato a parte in Python): +10 hPa a FL 105 = +252 ft, non i 270 della regola dei 27 ft/hPa
+  assert.ok(Math.abs(limitFt({ value: 105, unit: 'FL', ref: 'STD' }, 0, 1023.25) - 10751.9) < 0.5);
   assert.ok(Math.abs(limitFt({ value: 1500, unit: 'M', ref: 'GND' }, 0) - 4921.26) < 0.01);
 });
 
@@ -46,4 +47,18 @@ test('regole di ingresso per tipo di pilota', () => {
 test('nessuna frequenza inventata', () => {
   assert.equal(contactInfo({ freqs: [] }).freq, '');
   assert.equal(contactInfo({ freqs: [{ value: '119.350', name: 'FROSINONE TWR', primary: true }] }).freq, '119.350');
+});
+
+test('livelli di volo: formula esatta, uguale all\'altimetria e invertibile', async () => {
+  const { qnhAltFt, pressureAltFt } = await import('../web-prototype/src/airspace.js');
+  const { indicatedAtPressure } = await import('../web-prototype/src/altimetry.js');
+  const FT = 3.28084, P0 = 1013.25, pOf = ft => P0 * (1 - 0.0065 * (ft / FT) / 288.15) ** 5.25588;
+  for (const fl of [35, 65, 95, 105, 125, 195]) for (const q of [985, 1000, 1013.25, 1030, 1045]) {
+    const a = qnhAltFt(fl * 100, q);
+    assert.ok(Math.abs(a - indicatedAtPressure(pOf(fl * 100), q) * FT) < 0.01, `FL${fl} QNH ${q}`);
+    assert.ok(Math.abs(pressureAltFt(a, q) - fl * 100) < 0.01, `inversa FL${fl} QNH ${q}`);
+  }
+  // casi del collaudo 0.21.0 (tabella di confronto): FL 105 con QNH 1030 = 10920 ft, FL 195 con QNH 1040 = 20123 ft
+  assert.ok(Math.abs(qnhAltFt(10500, 1030) - 10920) < 1);
+  assert.ok(Math.abs(qnhAltFt(19500, 1040) - 20123) < 1);
 });

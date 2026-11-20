@@ -8,7 +8,77 @@ Ogni versione indica il commit da cui è stata creata. Il repository pubblico `f
 0.20.0 (8/11/2026) da un solo commit: le versioni precedenti restano descritte qui, senza commit né pagina di rilascio. Il workflow «App Android» crea in automatico l'etichetta
 (tag) `vX.Y.Z` su quel commit e, per la versione più recente, la pagina di rilascio su GitHub con l'APK.
 
-## [0.21.0] - 2026-11-08
+## [0.22.0] - 2026-11-20
+
+Collaudo critico della 0.21.0 e studio dei navigatori di riferimento: correzioni di sicurezza e fluidità, più funzioni
+nuove. Ogni correzione è stata riprodotta prima e verificata dopo (test automatici e prove in Chrome).
+
+### Sicurezza in volo
+- **Il GPS non si spegne più da solo.** Prima un solo «timeout» (20 s senza posizione, frequente col tablet sotto il
+  parabrezza) fermava tutta la navigazione. Ora solo il permesso negato ferma il GPS; altrimenti il programma resta in
+  ascolto e, se dopo 30 s non arriva nulla, riavvia la richiesta.
+- **Posizione vecchia sempre dichiarata.** Dopo 3 s senza posizione gli strumenti diventano grigi; dopo 10 s compare
+  «Posizione non aggiornata da N s», gli avvisi previsti si sospendono (prima restavano fermi e sembravano attuali) e la
+  voce lo dice. Un GPS esterno che manda frasi «non valide» non ripresenta più la vecchia posizione come nuova.
+- **Semaforo di integrità** in vista Volo: posizione (età e precisione), quota (fonte e precisione), dati (ciclo AIRAC,
+  terreno dettagliato presente), tablet (batteria, orologio confrontato col GPS). Verde, giallo, rosso; tocco = dettaglio.
+- **GPS esterno muto:** si passa da soli al GPS del tablet e si torna all'esterno appena riprende.
+- **Prossimo punto corretto su ogni rotta.** Il tratto attivo ora ha memoria: sulle rotte a U e di andata e ritorno il
+  programma indicava un punto già passato e non calcolava il fuori rotta. Passaggio al tratto successivo entro 0,5 NM,
+  oltre la bisettrice della virata o già allineati sul tratto nuovo (anche con la virata anticipata). Tocco su una casella
+  degli strumenti: «Tratto precedente» e «Tratto successivo».
+- **Spazi aerei con limiti dubbi sempre nei controlli.** 46 spazi (tra cui la zona regolamentata LI-R319 Rieti e una zona
+  proibita) avevano nella fonte il tetto sotto il terreno ed erano esclusi da disegno e avvisi. Ora il tetto si legge, per
+  prudenza, sopra il terreno: si vedono, danno avvisi e sono segnati «limite incerto».
+- **Quote dei punti che seguono la crociera.** Scrivendo la crociera cifra per cifra il programma alzava i punti alle
+  quote intermedie e li lasciava lì (crociera 5500, primi tratti a 2700 ft). Ora un punto alzato al minimo torna a
+  seguire la crociera: la quota è sempre la più alta tra crociera e minimo del tratto.
+- **Livelli di volo con la formula ISA esatta** al posto dei 27 ft/hPa fissi (errore fino a 55 ft a FL 105 con QNH alti),
+  anche per l'altitudine di pressione degli strumenti esterni, il traffico e la velocità vera.
+- **Data locale** al posto di quella UTC (tra mezzanotte e l'una il programma proponeva il giorno prima); «Luce
+  restante» in volo calcolata sul giorno vero, non sul campo «Data».
+- GPS esterno: una frase GGA senza quota non vale più «0 ft» (falso allarme di terreno).
+
+### Avvisi
+- **Avvisi sonori e a voce nell'app Android.** La WebView di Android non ha la sintesi vocale del web: fino alla 0.21.0
+  l'app restava muta. Ora usa la voce di Android (serve la voce italiana installata). Un avviso grave suona due toni,
+  interrompe le frasi in corso e parla subito; con «Voce» acceso si sente una prova.
+- **Orizzonti del terreno e degli ostacoli:** grave entro 60 s, attenzione entro 120 s, oltre nulla (prima 5 minuti in
+  linea retta: troppi falsi allarmi in valle). La previsione segue la virata in corso. Gli spazi aerei restano a 5 minuti.
+- **Un solo avviso principale**, per priorità: terreno e ostacoli, limite VDS, spazi aerei.
+- **«Ho l'autorizzazione» / «In contatto»** su uno spazio aereo in volo: niente più voce né banda rossa per quello
+  spazio in questo volo; l'avviso resta in elenco.
+
+### Fluidità
+- **Spazi aerei senza ricostruzioni:** la geometria di ogni spazio si calcola una volta. In volo i blocchi più lunghi
+  passano da 470 a 135 ms (su computer), il 95 % dei passi da 388 a 88 ms; un tocco sulla carta non ricostruisce più
+  tutto (da circa 0,4 s a pochi millisecondi).
+- **Campi numerici** (crociera, QNH): si ricalcola alla conferma o dopo 0,8 s di pausa, non a ogni cifra (scrivere
+  «4500» bloccava l'app 3,1 s, ora circa 1 s una volta sola).
+
+### Novità
+- **Liste di controllo a pagine:** una sezione per pagina (anche i sottotitoli, per esempio «Controlli motore» e
+  «Controlli esterni»), mai l'inizio della sezione dopo. Si sfogliano di lato col dito o con le frecce; la barra delle
+  pagine mostra le sezioni complete; a pagina completata si passa da soli alla successiva.
+- **Consigliere di quota** («Scegli la quota di crociera…»): per ogni quota terreno, limite VDS, spazi aerei da
+  chiamare o evitare, tempo, carburante, vento e livello semicircolare VFR; ★ = quota suggerita; un tocco la applica.
+- **Pronto al volo?** (tocco sul semaforo, a terra): terreno della rotta presente senza rete, problemi della rotta,
+  carburante, peso, meteo, NOTAM, voce.
+- **Fondovalle nel profilo:** il terreno più basso entro 1 NM dalla rotta (linea verde), per vedere le vie di fuga in
+  montagna.
+- **Colonna d'aria in scala:** quota che cresce verso l'alto, fasce numerate con nome e limiti alla loro quota, elenco
+  nello stesso ordine (dall'alto in basso). In volo la finestra si chiude da sola dopo 30 s, salvo «Tieni aperta».
+- **Carta di volo:** torna da sola sull'aereo dopo 30 s senza tocchi.
+
+### Interfaccia
+- Tempi senza ambiguità: «24 min», «1 h 05», «4′30″» (prima «0:24» e «11:10» si confondevano).
+- Virgola decimale negli avvisi e nelle distanze.
+- Bersagli tattili più grandi (caselle 22 px, pulsanti da 40–48 px, «già in volo» non più di 13 px).
+- Barra in alto intera anche col tablet in verticale e sul telefono; «Prototipo» sempre visibile.
+- Etichette della carta e del profilo che non si sovrappongono (resta la più importante).
+- «Sali sul campo» solo quando la partenza è un campo; altrimenti «sopra il punto di partenza».
+
+## [0.21.0] - 2026-11-08 · commit ae567db531fd7361fa2ecd71a4382f8577af3eed
 
 ### Sostegno
 - **Cuore «Sostieni AerIA»** nella barra in alto, a destra dell'ingranaggio: apre una finestra con il grazie volontario

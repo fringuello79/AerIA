@@ -3,7 +3,7 @@
 // Il programma mostra il traffico ricevuto e ripete l'allarme dello strumento; non calcola rotte di collisione proprie
 // oltre a una soglia semplice per i ricevitori che non danno un livello d'allarme. Guardare fuori resta la difesa principale.
 import { FT, NM, bearingDeg, distM } from './geo.js';
-import { FT_PER_HPA } from './airspace.js';
+import { qnhAltFt } from './airspace.js';
 
 const M_PER_DEG = 111320;
 
@@ -45,7 +45,7 @@ export function ingestFlarm(store, m, own, now) {
 export function ingestGdl90(store, m, own, qnh, now) {
   if (!m.valid) return;
   const key = `A-${m.address}`, pos = { lat: m.lat, lon: m.lon };
-  const altFt = Number.isFinite(m.pressAltFt) ? m.pressAltFt + (qnh - 1013.25) * FT_PER_HPA : NaN;
+  const altFt = Number.isFinite(m.pressAltFt) ? qnhAltFt(m.pressAltFt, qnh) : NaN;
   const d = own ? distM(own, pos) : NaN, relAltFt = own && Number.isFinite(altFt) ? altFt - own.altFt : NaN;
   store.set(key, { key, src: 'ADS-B', id: m.callsign || m.address, pos, distM: d, relAltFt, altFt, trk: m.trk, gsKt: m.gsKt, vsFpm: m.vsFpm,
     alarm: m.alert ? 2 : 0, t: now });

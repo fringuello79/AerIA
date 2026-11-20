@@ -127,7 +127,7 @@ async def main():
         await fixes(13.40, 42.16, 6500, 95, 315, T0 + 31 * 60000, 2)
         tm = await pg.inner_text("#timers")
         print("     " + tm.replace("\n", " | ")[:400])
-        check("0:30" in tm and "Spegni" in tm, "tempo di volo 0:30 e promemoria acceso")
+        check("30 min" in tm and "Spegni" in tm, "tempo di volo 30 min e promemoria acceso")
         await pg.screenshot(path=str(HERE / "volo-tempi.png"))
 
         # 7. atterraggio a Preturo (campo a 2211 ft)

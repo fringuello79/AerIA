@@ -1,13 +1,14 @@
 <!-- AerIA VFR · © 2026 fringuello79 (Avezzano). Tutti i diritti riservati. -->
 # Registro e piano di lavoro
 
-Aggiornato il 7 novembre 2026. Dettaglio delle versioni: [../CHANGELOG.md](../CHANGELOG.md). Ordine deciso per rischio: prima ciò che può portare a un errore
+Aggiornato il 20 novembre 2026. Dettaglio delle versioni: [../CHANGELOG.md](../CHANGELOG.md). Ordine deciso per rischio: prima ciò che può portare a un errore
 pericoloso, poi le funzioni mancanti, poi la comodità.
 
 ## Fatto
 
 | Data | Versione | Che cosa |
 | --- | --- | --- |
+| 20/11/2026 | 0.22.0 | Collaudo critico e studio dei navigatori di riferimento: GPS che non si spegne al primo timeout, posizione vecchia dichiarata, semaforo di integrità, tratto attivo con memoria, spazi con limiti dubbi nei controlli, quote dei punti che seguono la crociera, livelli di volo esatti, voce nativa Android con priorità, avvisi di terreno entro 60/120 s con la virata, spazi aerei senza ricostruzioni (fluidità), liste a pagine sfogliabili, consigliere di quota, Pronto al volo, fondovalle nel profilo, colonna d'aria in scala |
 | 8/11/2026 | 0.18.3 | Carburante a bordo su riga propria e riepilogo aggiornato subito; rotta senza tratteggio sovrapposto, una freccia per tratto |
 | 7/11/2026 | 0.18.2 | Rotta dritta e sempre 500 ft sopra il rilievo più alto del tratto (quota alzata in automatico), salita e discesa sul campo tra le montagne, quota raggiunta sul punto, nodi del profilo trascinabili con la casella che segue |
 | 7/11/2026 | 0.18.1 | Maniglie del profilo che seguono il dito, rotta e scia mai dentro il terreno disegnato, prua morbida dell'aereo, scia accendibile, comandi del volo in una riga sotto la carta, liste da ogni schermata con scelta dell'aereo, schermo sempre acceso |

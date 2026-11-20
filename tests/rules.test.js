@@ -133,24 +133,25 @@ test('tratto sopra il punto più alto incontrato: 500 ft sul rilievo entro 600 m
 });
 
 test('in volo un avviso di terreno «attenzione» non nasconde quello grave più avanti', () => {
-  // terreno a 2000 ft che sale a 4000 ft dopo 3 NM verso est; aereo a 2200 ft (200 ft sul terreno)
+  // terreno a 2000 ft che sale a 4000 ft dopo 1,5 NM verso est (54 s a 100 kt); aereo a 2200 ft (200 ft sul terreno)
   const start = [13.0, 42.0];
-  const hill = { elevFt: (lon) => (lon > 13.0 + 3 / (60 * Math.cos(42 * Math.PI / 180)) ? 4000 : 2000), maxWithinFt: () => 4000 };
+  const hill = { elevFt: (lon) => (lon > 13.0 + 1.5 / (60 * Math.cos(42 * Math.PI / 180)) ? 4000 : 2000), maxWithinFt: () => 4000 };
   const r = lookahead({ pos: { lon: start[0], lat: start[1] }, trackDeg: 90, gsKt: 100, altFt: 2200, pilot: 'avanzato', qnh: 1013.25, airspaces: [], terrain: hill, day: dayInfo('2026-11-06'), stepSec: 5 });
   const t = r.events.filter(e => e.kind === 'terrain');
   assert.equal(t.length, 2);
   assert.equal(t[0].lvl, 'warn'); assert.equal(t[0].t, 0);
-  assert.equal(t[1].lvl, 'crit'); assert.ok(Math.abs(t[1].distNm - 3) < 0.2);
+  assert.equal(t[1].lvl, 'crit'); assert.ok(Math.abs(t[1].distNm - 1.5) < 0.2);
 });
 
 test('la previsione segue la salita o la discesa misurata (variometro)', () => {
   const start = [13.0, 42.0];
-  const hill = { elevFt: (lon) => (lon > 13.0 + 3 / (60 * Math.cos(42 * Math.PI / 180)) ? 4000 : 1500), maxWithinFt: () => 4000 };
+  // cresta a 3000 ft dopo 1,5 NM (54 s a 100 kt), aereo a 2200 ft
+  const hill = { elevFt: (lon) => (lon > 13.0 + 1.5 / (60 * Math.cos(42 * Math.PI / 180)) ? 3000 : 1500), maxWithinFt: () => 4000 };
   const run = vsFpm => lookahead({ pos: { lon: start[0], lat: start[1] }, trackDeg: 90, gsKt: 100, altFt: 2200, pilot: 'avanzato', qnh: 1013.25, airspaces: [], terrain: hill, day: dayInfo('2026-11-06'), stepSec: 5, vsFpm })
     .events.filter(e => e.kind === 'terrain' && e.lvl === 'crit');
-  assert.equal(run(0).length, 1);            // livellato: dentro la cresta a 3 NM
-  assert.equal(run(2000).length, 0);         // sale a 1500 ft/min (limite prudente): a 3 NM è a 4900 ft
-  assert.equal(run(1000).length, 1);         // sale a 750 ft/min utili: a 3 NM è a circa 3550 ft, non basta
+  assert.equal(run(0).length, 1);            // livellato: dentro la cresta a 1,5 NM
+  assert.equal(run(2000).length, 0);         // sale a 1500 ft/min (limite prudente): a 1,5 NM è a circa 3550 ft
+  assert.equal(run(1000).length, 1);         // sale a 750 ft/min utili: a 1,5 NM è a circa 2875 ft, non basta
   assert.equal(run(50).length, 1);           // rumore del variometro ignorato
 });
 
@@ -186,4 +187,24 @@ test('margine dal terreno: conta la vetta entro 150 m dalla rotta (SERA.5005(f))
   assert.ok(minClr(without) >= 1500, 'sulla sola linea la cima non si vede');
   assert.equal(minClr(withNear), 200, 'con il raggio di 150 m sì');
   assert.ok(withNear.warnings.some(w => w.kind === 'terrain'));
+});
+
+test('orizzonti degli avvisi di terreno: grave entro 60 s, attenzione entro 120 s, oltre nulla', () => {
+  const start = [13.0, 42.0], kLon = 1 / (60 * Math.cos(42 * Math.PI / 180));
+  const at = nm => ({ elevFt: lon => (lon > 13.0 + nm * kLon ? 4000 : 1000), maxWithinFt: () => 4000 });
+  const run = nm => lookahead({ pos: { lon: start[0], lat: start[1] }, trackDeg: 90, gsKt: 100, altFt: 3000, pilot: 'ag', qnh: 1013.25, airspaces: [], terrain: at(nm), day: dayInfo('2026-11-06') })
+    .events.filter(e => e.kind === 'terrain');
+  assert.equal(run(1.4)[0].lvl, 'crit');     // 50 s
+  assert.equal(run(2.5)[0].lvl, 'warn');     // 90 s: attenzione, non ancora grave
+  assert.equal(run(4).length, 0);            // 144 s: troppo lontano per un avviso di terreno
+});
+
+test('la previsione segue la virata in corso', () => {
+  // montagna 1,2 NM davanti (est); virando a destra a 3°/s la traiettoria la evita
+  const start = [13.0, 42.0], kLon = 1 / (60 * Math.cos(42 * Math.PI / 180));
+  const m = { elevFt: (lon, lat) => (lon > 13.0 + 1.2 * kLon && Math.abs(lat - 42.0) < 0.01 ? 6000 : 1000), maxWithinFt: () => 6000 };
+  const run = turnRateDps => lookahead({ pos: { lon: start[0], lat: start[1] }, trackDeg: 90, gsKt: 90, altFt: 3000, pilot: 'ag', qnh: 1013.25, airspaces: [], terrain: m, day: dayInfo('2026-11-06'), turnRateDps })
+    .events.filter(e => e.kind === 'terrain' && e.lvl === 'crit');
+  assert.equal(run(0).length, 1);
+  assert.equal(run(3).length, 0);
 });

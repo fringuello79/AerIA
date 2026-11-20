@@ -116,12 +116,13 @@ async def main():
         # campo di partenza: resta a terra, cambia la quota dopo il decollo
         n0 = await pg.evaluate(NODE.replace("{{", "{").replace("}}", "}"), 0)
         await pg.mouse.click(box["x"] + n0["x"], box["y"] + n0["y"]); await pg.wait_for_timeout(300)
-        a0 = await pg.evaluate(f"{A}.state.route[0].altFt")
+        # quota effettiva: se il punto segue la crociera (dalla 0.22.0 non resta bloccato al minimo) vale la crociera
+        a0 = await pg.evaluate(f"{A}.state.route[0].altFt ?? Number(document.getElementById('cruise').value)")
         await pg.mouse.move(box["x"] + n0["x"], box["y"] + n0["y"]); await pg.mouse.down()
         for k in range(1, 9):
             await pg.mouse.move(box["x"] + n0["x"], box["y"] + n0["y"] - 6 * k); await pg.wait_for_timeout(30)
         await pg.mouse.up(); await pg.wait_for_timeout(500)
-        a0b = await pg.evaluate(f"{A}.state.route[0].altFt")
+        a0b = await pg.evaluate(f"{A}.state.route[0].altFt ?? Number(document.getElementById('cruise').value)")
         n0b = await pg.evaluate(NODE.replace("{{", "{").replace("}}", "}"), 0)
         check(a0b > a0 and abs(n0b["alt"] - n0["alt"]) < 1, f"campo di partenza: resta a terra, la quota dopo il decollo sale ({a0} → {a0b} ft)")
         await pg.mouse.click(box["x"] + 12, box["y"] + box["height"] - 8)   # bordo in basso a sinistra, lontano dai nodi
@@ -136,8 +137,8 @@ async def main():
         await pg.wait_for_timeout(800)
         t = await pg.inner_text("#checks")
         check("P96 GOLF" in t and "RUBINETTI CARBURANTE" in t, "liste: scelta del Golf dentro le liste")
-        await pg.click("#checks [data-c='item'][data-i='1']")
-        check("1/12" in await pg.inner_text("#checks"), "liste: voce spuntata")
+        await pg.click("#checks .ckpage[data-p='0'] [data-c='item'][data-i='1']")
+        check((await pg.inner_text("#checks .ckpage[data-p='0'] .ckcount")).startswith("1/"), "liste: voce spuntata")
         check(await pg.evaluate(f"{A}.state.nl.st.aircraftId") == "acm-golf", "liste: l'aereo scelto è anche quello del piano di volo")
         await pg.screenshot(path=str(HERE / "v0181-liste-pianifica.png"))
         await pg.click("#checks [data-c='close']")

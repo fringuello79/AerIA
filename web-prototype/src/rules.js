@@ -49,7 +49,7 @@ export function airspacesAt(lon, lat, terrFt, airspaces, qnh) {
   return out;
 }
 
-const fmtNm = m => (m / NM).toFixed(1);
+const fmtNm = m => (m / NM).toFixed(1).replace('.', ',');   // virgola decimale italiana
 
 // Quota del tratto i (dal punto i al punto i+1): quella scritta sul punto di partenza del tratto, altrimenti la crociera
 export const legAltFt = (route, i, cruiseFt) => (Number.isFinite(route[i]?.altFt) ? route[i].altFt : cruiseFt);
@@ -163,7 +163,7 @@ export function analyseRoute({ route, cruiseFt, pilot, qnh, airspaces, terrain, 
     }
   }
   for (const h of res.hits) {
-    const r = entryRule(h.a, pilot), where = `da ${fmtNm(h.from)} a ${fmtNm(h.to)} NM, ${limitText(h.a.lower)}–${limitText(h.a.upper)}`;
+    const r = entryRule(h.a, pilot), where = `da ${fmtNm(h.from)} a ${fmtNm(h.to)} NM, ${limitText(h.a.lower)}–${limitText(h.a.upper)}${h.a.doubt ? ` (limite incerto: ${h.a.doubt})` : ''}`;
     W.push({ lvl: r.level, kind: 'airspace', need: r.need, airspace: h.a, at: h.from, title: `${h.a.name}`, text: `${where}. ${r.text}`,
       plain: `Tra ${fmtNm(h.from)} e ${fmtNm(h.to)} miglia attraversi «${h.a.name}». ${r.text}` });
   }
@@ -183,7 +183,13 @@ export function analyseRoute({ route, cruiseFt, pilot, qnh, airspaces, terrain, 
 // Previsione in volo: dove sarò nei prossimi minuti su questa rotta e velocità, e che cosa incontrerò.
 // uncFt: incertezza della quota misurata (GPS o barometrica). Se entro l'incertezza si sarebbe dentro uno
 // spazio aereo, l'evento è «potresti essere dentro» (livello attenzione).
-export function lookahead({ pos, trackDeg, gsKt, altFt, minutes = 5, stepSec = 10, pilot, qnh, airspaces, terrain, day, uncFt = 0, obstacles = [], obstacleTopFt = null, vsFpm = 0, floorFt = -Infinity, warnAglFt = 300 }) {
+// Orizzonti degli avvisi di terreno e ostacoli (dalla 0.22.0): grave solo entro 60 s, attenzione entro 120 s, oltre
+// nulla. Prima la previsione era di 5 minuti in linea retta: volando in valle verso una curva l'avviso scattava di
+// continuo e un pilota finisce per spegnerlo (collaudo 0.21.0, C11). Gli spazi aerei restano a 5 minuti.
+// turnRateDps: virata in corso (gradi al secondo, + a destra): la traiettoria prevista segue la virata per al massimo
+// 60 s o 180°, poi prosegue diritta. Entro 120 s il passo è di 5 s (circa 250 m a 95 kt).
+export const TERRAIN_CRIT_S = 60, TERRAIN_WARN_S = 120;
+export function lookahead({ pos, trackDeg, gsKt, altFt, minutes = 5, stepSec = 10, pilot, qnh, airspaces, terrain, day, uncFt = 0, obstacles = [], obstacleTopFt = null, vsFpm = 0, floorFt = -Infinity, warnAglFt = 300, turnRateDps = 0 }) {
   const events = [], seen = new Set();
   const nowInside = new Set(airspacesAt(pos.lon, pos.lat, terrain.elevFt(pos.lon, pos.lat), airspaces, qnh).filter(h => altFt >= h.lo && altFt <= h.hi).map(h => h.a));
   const v = Math.max(gsKt, 0) * KT;
@@ -195,23 +201,32 @@ export function lookahead({ pos, trackDeg, gsKt, altFt, minutes = 5, stepSec = 1
   // Senza variometro si suppone il volo livellato. warnAglFt: margine sotto cui scatta l'attenzione (300 ft; 150 ft per
   // il VDS non avanzato, che vola per norma a 500 ft sul rilievo e riceverebbe avvisi continui).
   const vs = Number.isFinite(vsFpm) && Math.abs(vsFpm) > 100 ? (vsFpm > 0 ? Math.min(1500, 0.75 * vsFpm) : Math.max(-2000, vsFpm)) : 0;
-  for (let t = 0; t <= minutes * 60; t += stepSec) {
-    const p = destPoint([pos.lon, pos.lat], trackDeg, v * t / NM), terrC = terrain.elevFt(p[0], p[1]), terr = terrain.maxNearFt ? terrain.maxNearFt(p[0], p[1]) : terrC, a = Math.max(floorFt, altFt + vs * Math.min(t, vs > 0 ? 120 : 60) / 60); // quota prevista a t
+  const turn = Number.isFinite(turnRateDps) && Math.abs(turnRateDps) >= 1 ? Math.max(-6, Math.min(6, turnRateDps)) : 0;
+  const turnEnd = turn ? Math.min(60, 180 / Math.abs(turn)) : 0;
+  let cur = [pos.lon, pos.lat], hdg = trackDeg, tPrev = 0;
+  for (let t = 0; t <= minutes * 60; t += (t < TERRAIN_WARN_S ? Math.min(5, stepSec) : stepSec)) {
+    // posizione prevista: integrazione a passi, con la virata in corso nei primi turnEnd secondi
+    if (t > tPrev) {
+      const dt = t - tPrev, tm = Math.min(t, turnEnd) - Math.min(tPrev, turnEnd);
+      const hMid = hdg + turn * tm / 2;
+      cur = destPoint(cur, hMid, v * dt / NM); hdg += turn * tm; tPrev = t;
+    }
+    const p = cur, terrC = terrain.elevFt(p[0], p[1]), terr = terrain.maxNearFt ? terrain.maxNearFt(p[0], p[1]) : terrC, a = Math.max(floorFt, altFt + vs * Math.min(t, vs > 0 ? 120 : 60) / 60); // quota prevista a t
     // terreno: il primo punto con poco margine (attenzione) e, se più avanti si finisce dentro il rilievo, anche quello
     // (grave). Prima il solo avviso di attenzione nascondeva quello grave che veniva dopo.
-    if (Number.isFinite(terr) && a - terr < warnAglFt + uncFt) {
-      const lvl = a < terr ? 'crit' : 'warn';
+    if (t <= TERRAIN_WARN_S && Number.isFinite(terr) && a - terr < warnAglFt + uncFt) {
+      const lvl = a < terr && t <= TERRAIN_CRIT_S ? 'crit' : 'warn';
       if (!seen.has('terrain') || (lvl === 'crit' && !seen.has('terrain-crit'))) {
         seen.add('terrain'); if (lvl === 'crit') seen.add('terrain-crit');
         events.push({ kind: 'terrain', t, distNm: v * t / NM, lvl, clearance: a - terr });
       }
     }
     // ostacoli entro 600 m dal punto previsto con meno di 500 ft di margine (più l'incertezza della quota)
-    if (obstacleTopFt && !seen.has('obstacle-crit')) for (const o of obstacles) {
+    if (obstacleTopFt && t <= TERRAIN_WARN_S && !seen.has('obstacle-crit')) for (const o of obstacles) {
       if (Math.abs(o.lat - p[1]) > 0.006 || Math.abs(o.lon - p[0]) > 0.008 || distM(o, { lon: p[0], lat: p[1] }) > 600) continue;
       const top = obstacleTopFt(o);
       if (a - top < 500 + uncFt) {
-        const lvl = a < top ? 'crit' : 'warn';
+        const lvl = a < top && t <= TERRAIN_CRIT_S ? 'crit' : 'warn';
         if (lvl === 'warn' && seen.has('obstacle')) continue;
         seen.add('obstacle'); if (lvl === 'crit') seen.add('obstacle-crit');
         events.push({ kind: 'obstacle', t, distNm: v * t / NM, lvl, clearance: a - top, obstacle: o }); break;

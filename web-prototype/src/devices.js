@@ -2,7 +2,7 @@
 // Strumenti esterni: ricevitori GPS, altimetri barometrici, bussole, FLARM, ricevitori ADS-B.
 // Protocolli: NMEA 0183 (anche le frasi proprietarie FLARM e $PGRMZ per l'altitudine barometrica) e GDL90.
 // Trasporti: USB (Web Serial, browser Chrome su computer), Bluetooth LE (Web Bluetooth o app Android).
-import { FT_PER_HPA } from './airspace.js';
+import { qnhAltFt } from './airspace.js';
 
 // ---------------------------------------------------------------- NMEA 0183
 export function nmeaChecksumOk(line) {
@@ -30,7 +30,7 @@ export function parseNmea(line) {
   if (t === 'GGA') {
     const q = Number(f[6]);
     return { type: 'GGA', valid: q > 0, lat: latLon(f[2], f[3]), lon: latLon(f[4], f[5]), sats: Number(f[7]), hdop: Number(f[8]),
-      altMslM: Number(f[9]), geoidM: Number(f[11]) };
+      altMslM: f[9] === '' ? NaN : Number(f[9]), geoidM: f[11] === '' ? NaN : Number(f[11]) };   // campo vuoto: quota non nota, non 0 ft
   }
   if (id === 'PGRMZ') {
     // Altitudine di pressione (riferita a 1013,25 hPa); unità «f» = piedi
@@ -116,7 +116,7 @@ export function parseGdl90(msg) {
 
 // ---------------------------------------------------------------- fusione delle fonti
 // Altitudine di pressione → quota sul QNH. Errore tipico con temperatura lontana dalla ISA: circa 4 % per ogni 10 °C.
-export const qnhAltitude = (pressAltFt, qnh) => pressAltFt + (qnh - 1013.25) * FT_PER_HPA;
+export const qnhAltitude = (pressAltFt, qnh) => qnhAltFt(pressAltFt, qnh);
 
 export function fuse({ gps, baro, heading, qnh }) {
   const out = { notes: [] };

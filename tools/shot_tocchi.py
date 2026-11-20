@@ -137,7 +137,7 @@ async def main():
         vis = await pg.evaluate("getComputedStyle(document.querySelector('#whats')).display")
         txt = await pg.inner_text("#whats") if vis != "none" else ""
         print("COLONNA D'ARIA:\n" + txt)
-        check(vis != "none" and "Terreno" in txt and "spazi aerei, dal basso" in txt.lower(), "pressione lunga: colonna d'aria con terreno e spazi aerei")
+        check(vis != "none" and "Terreno" in txt and "spazi aerei, dall'alto in basso" in txt.lower(), "pressione lunga: colonna d'aria con terreno e spazi aerei")
         col = await pg.evaluate("(() => { const c = document.querySelector('#whats canvas'); return c ? [c.width, c.height] : null; })()")
         check(col and col[0] > 0 and col[1] > 0, f"sezione verticale disegnata ({col})")
         check("dalla rotta" in txt.lower(), "il riquadro dice quanto si è lontani dalla rotta")

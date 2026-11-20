@@ -3,6 +3,7 @@
 // Calcoli a regole, verificabili a mano con il computer di navigazione (E6B). Nessun dato dell'aereo è
 // inventato: i profili partono dai valori del modulo dell'Aeroclub dei Marsi o da quelli inseriti dal pilota.
 import { FT, NM, distM, bearingDeg, degLengths } from './geo.js';
+import { pressureAltFt } from './airspace.js';
 import { VERSION, AUTHOR } from './version.js';
 
 export const KMH_PER_KT = 1.852;
@@ -59,7 +60,7 @@ export function windTriangle(tc, tas, wind) {
 
 // IAS → TAS (IAS considerata uguale alla CAS: errore d'installazione dell'anemometro non noto)
 export function tasFromIas(iasKt, altFt, qnh = P0, oatC = null) {
-  const pa = altFt - (qnh - P0) * 27;                       // altitudine di pressione (ft)
+  const pa = pressureAltFt(altFt, qnh);                     // altitudine di pressione (ft), formula ISA esatta
   const p = P0 * (1 - LAPSE * (pa / FT) / T0) ** EXP;
   const T = oatC == null ? T0 - LAPSE * pa / FT : oatC + 273.15;
   const sigma = (p / P0) / (T / T0);

@@ -89,3 +89,14 @@ test('con forte vento contrario in volo non si «atterra»: serve anche essere v
   for (let t = 120; t < 160; t++) { const e = phaseStep(s, { t: t * 1000, gsKt: 10, aglFt: 20 }); if (e) ev.push(e); }
   assert.deepEqual(ev.map(e => e.kind), ['decollo', 'atterraggio']);
 });
+
+test('durate senza ambiguità tra ore e minuti (dalla 0.22.0)', async () => {
+  const { fmtDurIt, fmtEte } = await import('../web-prototype/src/flight.js');
+  assert.equal(fmtDurIt(24.9), '24 min');            // trascorso o autonomia: per difetto
+  assert.equal(fmtDurIt(24.6, 'round'), '25 min');   // stima del tempo di rotta
+  assert.equal(fmtDurIt(65), '1 h 05');
+  assert.equal(fmtEte(0.75), '45 s');
+  assert.equal(fmtEte(4.5), '4′30″');
+  assert.equal(fmtEte(11.2), '11 min');
+  assert.equal(fmtDurIt(NaN), '—');
+});

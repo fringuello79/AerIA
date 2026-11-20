@@ -45,4 +45,10 @@
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
     <!-- Aggiornamento dell'app: Android chiede sempre conferma prima di installare -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Android 11 e successivi: per usare la sintesi vocale l'app deve dichiarare che cerca il servizio TTS -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
 </manifest>

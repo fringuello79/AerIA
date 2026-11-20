@@ -14,9 +14,11 @@ import { VERSION, AUTHOR, DONATE_URL, SPONSORS_URL, PROJECT_URL, TABELLA_K } fro
 import { fromGeojson, fromOpenAir, limitFt, limitText, category, CAT_COLOR, CAT_LABEL, TYPE_LABEL, FIR_TYPES, entryRule, contactInfo } from './airspace.js';
 import { legAltFt, dayInfo, analyseRoute, lookahead, eventSpeech, airspacesAt, legCorridorMinFt, nodeMinFt, enforceLegClearance, LEG_CLEAR_FT, LEG_CORRIDOR_M } from './rules.js';
 import { buildRadioCards, maydayText, channelOf } from './radio.js';
-import { parseMetars as parseMetarsFor, fetchWeather, nearestQnh, weatherWarnings, CAT_COL, CAT_IT, HAZARD_IT, NEAR_KM, CONVECTIVE, distToRouteKm } from './weather.js';
+import { parseMetars as parseMetarsFor, fetchWeather, nearestQnh, weatherWarnings, CAT_COL, CAT_IT, HAZARD_IT, distToRouteKm } from './weather.js';
 import { parseNmea, fuse, connectBle, connectUsb, transportsAvailable, demoNmeaLines } from './devices.js';
 import { geoidN } from './geoid.js';
+import { newNavSeq, navStep, setLeg } from './navseq.js';
+import { altitudeOptions } from './advisor.js';
 import { altimetryCheck } from './altimetry.js';
 import { initNavlog, renderNavlog, computePlan } from './navlogui.js';
 import { PLANNING_DEFAULTS, runwayWind, crosswindChecks, tasFromIas, windTriangle, computeNavlog, decl as declOf, decimalYear, KMH_PER_KT } from './navlog.js';
@@ -25,7 +27,7 @@ import { freshnessWarnings, staleAirspaceInfo, airacCycle } from './freshness.js
 import { featureWarnings, fieldAt, aerodromeKind, obstacleTopFt, unknownHeightM, VDS_AIRPORT_KM, aliasesFor, fieldDoubtWarnings } from './features.js';
 import { sunTimes, localHM, daylightChecks, romeToUtcMs } from './sun.js';
 import { glideReachM, arrivalHeightFt } from './glide.js';
-import { newPhase, phaseStep, fmtDur, fmtMS, reminderState, fuelEstimate, fuelWarnings, verticalSpeedFpm, requiredVsFpm, logEntry, pointReminderStep } from './flight.js';
+import { newPhase, phaseStep, fmtDur, fmtDurIt, fmtEte, fmtMS, reminderState, fuelEstimate, fuelWarnings, verticalSpeedFpm, requiredVsFpm, logEntry, pointReminderStep } from './flight.js';
 import { MINIMA_DEFAULT, minimaWarnings } from './minima.js';
 import { ingestFlarm, pruneTraffic, trafficList, trafficAlarm, trafficText, flarmAlarmText } from './traffic.js';
 import { analyzeFlight } from './debrief.js';
@@ -43,7 +45,7 @@ const state = {
   route: [], routeDemo: false, selected: null, addMode: false,
   mode: 'beginner', view: 'plan', theme: 'day', labelsTouched: false,
   analysis: null,
-  fly: { active: false, source: null, pos: null, altFt: 0, gsKt: 0, trk: 0, watch: null, timer: null, sim: null, spoken: new Map(), events: [], last: null, top: false, ph: newPhase(), alts: [], extra: [], simClock: 0, fixT: 0, follow: true, followK: 1 },
+  fly: { seq: newNavSeq(), active: false, source: null, pos: null, altFt: 0, gsKt: 0, trk: 0, watch: null, timer: null, sim: null, spoken: new Map(), events: [], last: null, top: false, ph: newPhase(), alts: [], extra: [], simClock: 0, fixT: 0, follow: true, followK: 1 },
   timers: { reminder: null, chrono: null, fuelL: NaN, remindCount: -1, autoRemind: false }, emerg: false, showTimers: false, terrPlan: false,
   voice: false,
   dim: '3d', hitKey: '', geoid: null, feats: null, decl: null, nl: initNavlog(),
@@ -61,7 +63,10 @@ const ui = {
   cruise: $('cruise'), qnh: $('qnh'), exag: $('exag'), ceiling: $('ceiling'), pilot: $('pilot'), date: $('date'), dayOverride: $('dayOverride'),
   showFir: $('showFir'), showLabels: $('showLabels'), callsign: $('callsign'), acType: $('acType'), simSpeed: $('simSpeed'),
 };
-ui.date.value = new Date().toISOString().slice(0, 10);
+// Data locale (ora italiana), non UTC: tra mezzanotte e l'una (le due d'estate) la data UTC è quella del giorno prima
+// (collaudo 0.21.0, D2)
+const localDate = (t = Date.now()) => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+ui.date.value = localDate();
 const qnh = () => Number(ui.qnh.value) || 1013.25;
 const cruise = () => Number(ui.cruise.value) || 0;
 const day = () => dayInfo(ui.date.value, ui.dayOverride.value);
@@ -176,9 +181,15 @@ const nodeMin = i => nodeMinFt(legMins(), Math.min(i, state.route.length - 2));
 function applyClearance() {
   const R = state.route;
   if (R.length < 2 || terrain.demo) return false;
+  // Un punto che seguiva la crociera ed è stato alzato al minimo non resta bloccato lì: a ogni ricalcolo torna a seguire
+  // la crociera e si rialza solo se serve ancora. Così la quota effettiva è sempre max(crociera, minimo del tratto) e
+  // cambiare la crociera la porta con sé (collaudo 0.21.0, A6). Le quote scritte dal pilota restano sue.
+  const sig0 = R.map(p => p.altFt).join();
+  for (const p of R) if (p.autoRaised?.fromCruise && p.altFt === p.autoRaised.toFt) { delete p.altFt; delete p.autoRaised; }
+  const before = R.map(p => Number.isFinite(p.altFt));
   const ch = enforceLegClearance({ route: R, cruiseFt: cruise(), legMins: legMins() });
-  for (const c of ch) R[c.node].autoRaised = { ...c, name: R[c.node].name || `P${c.node + 1}`, legName: `${R[c.leg].name || `P${c.leg + 1}`} → ${R[c.leg + 1].name || `P${c.leg + 2}`}` };
-  return ch.length > 0;
+  for (const c of ch) R[c.node].autoRaised = { ...c, fromCruise: !before[c.node], name: R[c.node].name || `P${c.node + 1}`, legName: `${R[c.leg].name || `P${c.leg + 1}`} → ${R[c.leg + 1].name || `P${c.leg + 2}`}` };
+  return R.map(p => p.altFt).join() !== sig0;
 }
 function clearanceWarnings() {
   const out = [];
@@ -191,10 +202,11 @@ function clearanceWarnings() {
       plain: `Ho alzato ${a.name} a ${a.toFt} piedi per passare sopra il rilievo più alto del tratto, a ${a.terrFt} piedi.` });
   });
   const pr = state.profile, R = state.route;
-  if (pr?.depOverheadFt) out.push({ lvl: 'warn', kind: 'terrain', title: `Sali sul campo fino a ${pr.depOverheadFt} ft prima di partire`,
+  const onDep = pr?.depField ? 'sul campo' : 'sopra il punto di partenza', onArr = pr?.arrField ? 'sul campo' : 'sopra il punto d’arrivo';
+  if (pr?.depOverheadFt) out.push({ lvl: 'warn', kind: 'terrain', title: `Sali ${onDep} fino a ${pr.depOverheadFt} ft prima di partire`,
     text: `Dopo il decollo da ${R[0].name || 'P1'}, salendo in linea col rateo dell'aereo passeresti a meno di ${LEG_CLEAR_FT} ft dal rilievo: prendi quota sopra il campo (in spirale, rispettando il circuito) fino a ${pr.depOverheadFt} ft, poi prosegui. Il tempo della salita sul campo non è nei tempi del log.`,
-    plain: `Dopo il decollo sali sopra il campo fino a ${pr.depOverheadFt} piedi prima di partire: le montagne vicine non lasciano salire in linea.` });
-  if (pr?.arrOverheadFt) out.push({ lvl: 'warn', kind: 'terrain', title: `Arriva sul campo a ${pr.arrOverheadFt} ft e scendi lì`,
+    plain: `Dopo il decollo sali ${onDep} fino a ${pr.depOverheadFt} piedi prima di partire: le montagne vicine non lasciano salire in linea.` });
+  if (pr?.arrOverheadFt) out.push({ lvl: 'warn', kind: 'terrain', title: `Arriva ${onArr} a ${pr.arrOverheadFt} ft e scendi lì`,
     text: `Scendendo in linea verso ${R.at(-1).name || 'l\'arrivo'} passeresti a meno di ${LEG_CLEAR_FT} ft dal rilievo: arriva sopra il campo a ${pr.arrOverheadFt} ft e scendi lì fino alla quota di circuito.` });
   // quota di un punto non raggiungibile sul punto col rateo dell'aereo (tratto troppo corto per la salita)
   if (pr && R.length > 2) {
@@ -298,7 +310,7 @@ function setFollow(on) {
   if (on) { const d = cam().position.distanceTo(controls.target); if (state.dim !== '2d' && f.pos && Number.isFinite(d)) f.followK = Math.min(6, Math.max(0.3, d / Math.hypot(13, 5))); }
   f.follow = on; f.camGoal = null;
   $('recenterBtn').setAttribute('aria-pressed', String(on));
-  $('recenterBtn').title = on ? 'Segui l\'aereo (prua in alto)' : 'Carta libera: tocca per tornare sull\'aereo con la prua in alto';
+  $('recenterBtn').title = on ? 'Segui l\'aereo (prua in alto)' : 'Carta libera: tocca per tornare sull\'aereo (torna da sola dopo 30 s senza tocchi)';
   if (on) followCamera();
   dirty = true;
 }
@@ -627,6 +639,35 @@ function cachedTex(key, draw) {
 }
 const roundRect = (ctx, x, y, w, h, r) => { ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, w, h, r) : ctx.rect(x, y, w, h); };
 // Etichetta rettangolare: fondo chiaro, bordo sottile, testo scuro o colorato; dimensione fissa in pixel (scaleLabels)
+// Etichette che si sovrappongono sullo schermo: resta la più importante, le altre si nascondono finché non c'è posto
+// (collaudo 0.21.0, C6: «TOC» copriva il tratto, «Celano» il campo). Simboli e punti della rotta non si nascondono mai:
+// fanno solo da ostacolo. Priorità: aereo e rotta, spazi aerei evidenziati, traffico, campi, base cartografica.
+function declutterLabels(c, h) {
+  const W = view.clientWidth || 1, placed = [], cand = [];
+  const groupsP = [[groups.plane, 6], [groups.route, 5], [groups.traffic, 5], [groups.labels, 4], [groups.feat, 3], [groups.wx, 2], [groups.fc, 2], [groups.base, 1], [groups.review, 5]];
+  for (const [g, gp] of groupsP) {
+    if (!g.visible) continue;
+    for (const o of g.children) {
+      const u = o.userData;
+      if (!o.isSprite || !u.px || !o.visible) continue;
+      const p = _v.copy(o.position).project(c);
+      if (p.z > 1 || p.z < -1) continue;
+      const big = state.mode === 'beginner' && !u.noBig ? 1.15 : 1, w = u.px[0] * big, hh = u.px[1] * big;
+      const x = (p.x + 1) / 2 * W, y = (1 - p.y) / 2 * h, cx = o.center?.x ?? 0.5, cy = o.center?.y ?? 0.5, x0 = x - w * cx, y0 = y - hh * (1 - cy);
+      const r = { x0: x0 + 2, x1: x0 + w - 2, y0: y0 + 2, y1: y0 + hh - 2, o, prio: (u.prio ?? gp) + (u.hot ? 0.5 : 0) };
+      if (u.isLabel) cand.push(r); else placed.push(r);
+    }
+  }
+  cand.sort((a, b) => b.prio - a.prio);
+  const hit = (a, b) => a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0;
+  for (const r of cand) {
+    // un simbolo copre solo le etichette meno importanti del suo gruppo (il nome di un punto sta accanto al suo simbolo)
+    const show = !placed.some(q => q.o !== r.o && (q.o.userData.isLabel || q.prio > r.prio) && hit(r, q));
+    const op = show ? 1 : 0;
+    if (r.o.material.opacity !== op) { r.o.material.opacity = op; dirty = true; }
+    if (show) placed.push(r);
+  }
+}
 function makeLabel(text, color, scale = 1, style = 'box') {
   const t = cachedTex(`L|${style}|${color}|${text}`, (c, ctx) => {
     const font = `600 30px ${FONT}`; ctx.font = font;
@@ -640,7 +681,7 @@ function makeLabel(text, color, scale = 1, style = 'box') {
   });
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t.tex, depthTest: false, transparent: true }));
   // dimensione fissa sullo schermo (in pixel), qualunque sia lo zoom: vedi scaleLabels()
-  s.userData.px = [t.w / t.h * 20 * scale, 20 * scale]; s.renderOrder = 10;
+  s.userData.px = [t.w / t.h * 20 * scale, 20 * scale]; s.userData.isLabel = true; s.renderOrder = 10;
   return s;
 }
 
@@ -671,16 +712,34 @@ function prepareAirspaces() {
   computeAirspaceLimits();
 }
 function computeAirspaceLimits() {
-  for (const s of state.airspaces) {
-    s.minLowerFt = Infinity;
-    let maxGap = -Infinity;
+  const q = qnh();
+  const scan = s => {
+    let minLower = Infinity, maxGap = -Infinity;
     for (const ring of s.clipped) for (const p of ring) {
       const t = terrain.elevFt(p[0], p[1]);
-      s.minLowerFt = Math.min(s.minLowerFt, limitFt(s.lower, t, qnh()));
-      if (Number.isFinite(t)) maxGap = Math.max(maxGap, limitFt(s.upper, t, qnh()) - Math.max(t, limitFt(s.lower, t, qnh())));
+      minLower = Math.min(minLower, limitFt(s.lower, t, q));
+      if (Number.isFinite(t)) maxGap = Math.max(maxGap, limitFt(s.upper, t, q) - Math.max(t, limitFt(s.lower, t, q)));
     }
-    // Dato sospetto: il volume non esiste da nessuna parte (tetto sotto il terreno o sotto la base)
-    s.suspect = s.clipped.length > 0 && Number.isFinite(maxGap) && maxGap <= 0;
+    return { minLower, empty: s.clipped.length > 0 && Number.isFinite(maxGap) && maxGap <= 0 };
+  };
+  for (const s of state.airspaces) {
+    const prev = JSON.stringify(s.upper);
+    if (s.upperSource) s.upper = s.upperSource;     // si riparte sempre dal dato della fonte
+    let r = scan(s);
+    s.doubt = null;
+    // Dato dubbio: il volume non esiste da nessuna parte (tetto sotto il terreno). Di solito la fonte ha scritto MSL al
+    // posto di AGL. Prima questi spazi erano esclusi da disegno e controlli: una zona R o P poteva non dare alcun avviso
+    // (collaudo 0.21.0, A5: LI-R319 Rieti, Monti Reatini). Ora il tetto si legge, per prudenza, sopra il terreno (AGL):
+    // lo spazio si vede, entra in tutti i controlli ed è segnalato come «limite incerto».
+    if (r.empty && s.upper && s.upper.unit !== 'FL' && s.upper.ref === 'MSL' && s.upper.value > 0 && s.upper.value < 99999) {
+      s.upperSource = s.upperSource || s.upper;
+      s.upper = { ...s.upperSource, ref: 'GND' };
+      s.doubt = `tetto «${limitText(s.upperSource)}» sotto il terreno nella fonte: letto come ${limitText(s.upper)} per prudenza`;
+      r = scan(s);
+    }
+    s.minLowerFt = r.minLower;
+    s.suspect = r.empty;   // resta solo se il volume non esiste nemmeno così
+    if (JSON.stringify(s.upper) !== prev) s.limRev = (s.limRev || 0) + 1;
   }
 }
 
@@ -719,10 +778,55 @@ function drapedCap(ring, lim, ceil, floor) {
   }
   return out;
 }
+// Geometria di ogni spazio aereo (pareti e cieli, in coordinate della scena), calcolata una volta e riusata finché non
+// cambiano QNH, quota «Spazi fino a», esagerazione verticale, origine della scena, terreno caricato o limiti dello spazio.
+// Prima ogni evidenziazione (in volo, di continuo) e ogni tocco sulla carta ricalcolavano tutto: fino a 0,5 s di blocco
+// su computer, di più sul tablet (collaudo 0.21.0, B1–B2). Codice di fringuello79 di Avezzano.
+const airGeomCache = new Map();
+const pushAll = (dst, src) => { for (let i = 0; i < src.length; i++) dst.push(src[i]); };
+function airGeom(a, ceil) {
+  const P = state.proj, o = P.origin;
+  const key = `${qnh()}|${ceil}|${ui.exag.value}|${o.lon},${o.lat}|${terrain.grids.length}:${terrain.name || ''}:${terrain.demo}|${a.limRev || 0}`;
+  const hit = airGeomCache.get(a);
+  if (hit && hit.key === key) return hit.rings;
+  const rings = [];
+  for (const ring of a.clipped) {
+    const loc = ring.map(p => P.toLocal(p[0], p[1]));
+    const terr = ring.map(p => terrain.elevFt(p[0], p[1]));
+    // Limiti sopra il terreno (AGL, per esempio parchi «SFC–3300 ft AGL»): seguono il rilievo punto per punto, anche
+    // all'interno, non solo sul bordo. Prima il cielo era piatto alla quota del bordo + 3300 ft e le cime interne
+    // (Monte Velino) lo bucavano. L'esagerazione verticale vale uguale per terreno e spazi, quindi le distanze tornano.
+    // Il tetto si taglia alla quota «Spazi fino a» solo se è in quota assoluta (MSL o FL), mai se è AGL.
+    const aglTop = a.upper?.ref === 'GND' && a.upper.value > 0 && a.upper.value < 99999;
+    const floating = !(a.lower.ref === 'GND' && a.lower.value === 0), aglBot = floating && a.lower?.ref === 'GND';
+    const bot = ring.map((p, i) => Math.max(limitFt(a.lower, terr[i], qnh()), Number.isFinite(terr[i]) ? terr[i] : 0));
+    const top = ring.map((p, i) => aglTop ? limitFt(a.upper, terr[i], qnh()) : Math.min(limitFt(a.upper, terr[i], qnh()), ceil));
+    const pos = [];
+    for (let i = 0; i < ring.length; i++) {
+      const j = (i + 1) % ring.length;
+      if (top[i] <= bot[i] && top[j] <= bot[j]) continue;
+      const yb0 = yOf(bot[i]), yb1 = yOf(bot[j]), yt1 = yOf(Math.max(top[j], bot[j])), yt0 = yOf(Math.max(top[i], bot[i]));
+      pos.push(loc[i].x, yb0, loc[i].z, loc[j].x, yb1, loc[j].z, loc[j].x, yt1, loc[j].z,
+        loc[i].x, yb0, loc[i].z, loc[j].x, yt1, loc[j].z, loc[i].x, yt0, loc[i].z);
+    }
+    // cielo (e fondo, se il volume è sospeso)
+    const cap = [];
+    const flat = (aglTop && (!floating || aglBot)) ? null : THREE.ShapeUtils.triangulateShape(loc.map(p => new THREE.Vector2(p.x, p.z)), []);
+    if (aglTop) pushAll(cap, drapedCap(ring, a.upper, Infinity, false));
+    else for (const t of flat) for (const k of t) cap.push(loc[k].x, yOf(top[k]), loc[k].z);
+    if (floating) {
+      if (aglBot) pushAll(cap, drapedCap(ring, a.lower, Infinity, true));
+      else for (const t of flat) for (const k of t) cap.push(loc[k].x, yOf(bot[k]), loc[k].z);
+    }
+    rings.push({ ring, loc, terr, top, bot, floating, pos: new Float32Array(pos), cap: new Float32Array(cap) });   // metà memoria degli array normali
+  }
+  airGeomCache.set(a, { key, rings });
+  return rings;
+}
 function buildAirspaces() {
   groups.air.clear(); groups.labels.clear();
   if (!state.proj) return;
-  const P = state.proj, ceil = airCeilFt();
+  const ceil = airCeilFt();
   const rel = relevantAirspaces(), anyRel = rel.size > 0;
   const vis = visibleAirspaces().filter(a => rel.has(a) || bboxInFocus(a.bbox));
   if (!state.labelsTouched) ui.showLabels.checked = state.mode === 'expert' && vis.length <= 25;
@@ -734,40 +838,15 @@ function buildAirspaces() {
     const color = new THREE.Color(CAT_COLOR[category(a)]), hot = rel.has(a), sel = state.selected === a;
     // opacità: evidenziato 0,38 (0,5 se selezionato), normale 0,22, attenuato 0,1 quando c'è qualcosa da evidenziare
     const op = sel ? 0.5 : hot ? 0.38 : anyRel ? 0.1 : 0.22;
-    for (const ring of a.clipped) {
-      const loc = ring.map(p => P.toLocal(p[0], p[1]));
-      const terr = ring.map(p => terrain.elevFt(p[0], p[1]));
-      // Limiti sopra il terreno (AGL, per esempio parchi «SFC–3300 ft AGL»): seguono il rilievo punto per punto, anche
-      // all'interno, non solo sul bordo. Prima il cielo era piatto alla quota del bordo + 3300 ft e le cime interne
-      // (Monte Velino) lo bucavano. L'esagerazione verticale vale uguale per terreno e spazi, quindi le distanze tornano.
-      // Il tetto si taglia alla quota «Spazi fino a» solo se è in quota assoluta (MSL o FL), mai se è AGL.
-      const aglTop = a.upper?.ref === 'GND' && a.upper.value > 0 && a.upper.value < 99999;
-      const floating = !(a.lower.ref === 'GND' && a.lower.value === 0), aglBot = floating && a.lower?.ref === 'GND';
-      const bot = ring.map((p, i) => Math.max(limitFt(a.lower, terr[i], qnh()), Number.isFinite(terr[i]) ? terr[i] : 0));
-      const top = ring.map((p, i) => aglTop ? limitFt(a.upper, terr[i], qnh()) : Math.min(limitFt(a.upper, terr[i], qnh()), ceil));
+    for (const { ring, loc, terr, top, bot, floating, pos, cap } of airGeom(a, ceil)) {
       // pareti sfumate: piene in alto, quasi trasparenti in basso (si legge il volume senza «impastare» la carta)
-      const pos = [], al = [], aTop = Math.min(0.75, op * 2.1), aBot = op * 0.25;
-      for (let i = 0; i < ring.length; i++) {
-        const j = (i + 1) % ring.length;
-        if (top[i] <= bot[i] && top[j] <= bot[j]) continue;
-        const A = [loc[i].x, yOf(bot[i]), loc[i].z], B = [loc[j].x, yOf(bot[j]), loc[j].z];
-        const C = [loc[j].x, yOf(Math.max(top[j], bot[j])), loc[j].z], D = [loc[i].x, yOf(Math.max(top[i], bot[i])), loc[i].z];
-        pos.push(...A, ...B, ...C, ...A, ...C, ...D); al.push(aBot, aBot, aTop, aBot, aTop, aTop);
-      }
-      // cielo (e fondo, se il volume è sospeso): velo leggero, più marcato se lo spazio conta per la rotta
-      const cap = [];
-      const flat = (aglTop && (!floating || aglBot)) ? null : THREE.ShapeUtils.triangulateShape(loc.map(p => new THREE.Vector2(p.x, p.z)), []);
-      if (aglTop) cap.push(...drapedCap(ring, a.upper, Infinity, false));
-      else for (const t of flat) cap.push(...t.flatMap(k => [loc[k].x, yOf(top[k]), loc[k].z]));
-      if (floating) {
-        if (aglBot) cap.push(...drapedCap(ring, a.lower, Infinity, true));
-        else for (const t of flat) cap.push(...t.flatMap(k => [loc[k].x, yOf(bot[k]), loc[k].z]));
-      }
+      const al = [], aTop = Math.min(0.75, op * 2.1), aBot = op * 0.25;
+      for (let k = 0; k < pos.length / 18; k++) al.push(aBot, aBot, aTop, aBot, aTop, aTop);
       const capA = sel ? 0.3 : hot ? 0.16 : op * 0.4;
       if (!hot && !sel) {
         // nelle maglie condivise
-        B.wPos.push(...pos); for (const x of al) B.wCol.push(color.r, color.g, color.b, x); for (let k = 0; k < pos.length / 9; k++) B.wMap.push(a);
-        B.cPos.push(...cap); for (let k = 0; k < cap.length / 3; k++) B.cCol.push(color.r, color.g, color.b, capA); for (let k = 0; k < cap.length / 9; k++) B.cMap.push(a);
+        pushAll(B.wPos, pos); for (const x of al) B.wCol.push(color.r, color.g, color.b, x); for (let k = 0; k < pos.length / 9; k++) B.wMap.push(a);
+        pushAll(B.cPos, cap); for (let k = 0; k < cap.length / 3; k++) B.cCol.push(color.r, color.g, color.b, capA); for (let k = 0; k < cap.length / 9; k++) B.cMap.push(a);
         const seg = arr => { for (let i = 0; i < loc.length; i++) { const j = (i + 1) % loc.length; B.lPos.push(loc[i].x, yOf(arr[i]), loc[i].z, loc[j].x, yOf(arr[j]), loc[j].z); B.lCol.push(color.r, color.g, color.b, color.r, color.g, color.b); } };
         seg(top); if (floating) seg(bot);
       } else {
@@ -942,12 +1021,12 @@ function buildRoute() {
       // etichetta del tratto: rotta magnetica, distanza e tempo senza vento (come la «bolla» dei navigatori)
       const mid = (wpD[i] + wpD[i + 1]) / 2, q = routePointAt(mid), trkM = Math.round((bearingDeg(R[i], R[i + 1]) - declAt(R[i].lon, R[i].lat) + 360) % 360) || 360;
       const ias = currentAircraft().iasKt, min = ias ? Math.round(L / NM / ias * 60) : null;
-      const lab = makeLabel(`${String(trkM).padStart(3, '0')}° · ${(L / NM).toFixed(1)} NM${min ? ` · ${min}′` : ''}`, col.line, 0.72);
-      lab.userData.anchor = toV(q.lon, q.lat, pr.altAt(mid)); lab.userData.offPx = -22; lab.userData.maxKm = 140; groups.route.add(lab);
+      const lab = makeLabel(`${String(trkM).padStart(3, '0')}° · ${(L / NM).toFixed(1).replace('.', ',')} NM${min ? ` · ${min}′` : ''}`, col.line, 0.72);
+      lab.userData.anchor = toV(q.lon, q.lat, pr.altAt(mid)); lab.userData.offPx = -22; lab.userData.maxKm = 140; lab.userData.prio = 5; groups.route.add(lab);
     }
     for (const e of pr.events) {
       const q = routePointAt(e.d), lab = makeLabel(e.kind, '#ffffff', 0.62, 'dark');
-      lab.userData.anchor = toV(q.lon, q.lat, e.alt); lab.userData.offPx = 16; groups.route.add(lab);
+      lab.userData.anchor = toV(q.lon, q.lat, e.alt); lab.userData.offPx = 16; lab.userData.prio = 4.6; groups.route.add(lab);
     }
   }
   R.forEach((p, i) => {
@@ -968,7 +1047,7 @@ function buildRoute() {
     }
     const name = p.name || `P${i + 1}`;
     const lab = makeLabel(`${name}${pr && i < R.length - 1 ? ` · ${Math.round(legAltFt(R, i, cr))} ft` : ''}`, '#0f1b28', 0.85);
-    lab.center.set(-0.12, 0.5); lab.userData.anchor = top; lab.userData.offPx = is3d && i < R.length - 1 ? 40 : 0; lab.renderOrder = 12; groups.route.add(lab);
+    lab.center.set(-0.12, 0.5); lab.userData.anchor = top; lab.userData.offPx = is3d && i < R.length - 1 ? 40 : 0; lab.userData.prio = 6; lab.renderOrder = 12; groups.route.add(lab);
   });
 }
 
@@ -1090,6 +1169,23 @@ function drawProfile(samples, total, altFt, marks = [], opt = {}) {
   ctx.beginPath(); ctx.moveTo(X(0), Y(0));
   samples.forEach(s => ctx.lineTo(X(s.dist), Y(Number.isFinite(s.terr) ? s.terr : 0)));
   ctx.lineTo(X(total), Y(0)); ctx.closePath(); ctx.fillStyle = css('--terrain-fill'); ctx.fill();
+  // Fondovalle: il terreno più basso entro 1 NM a destra e a sinistra della linea. Dove sta molto sotto il profilo c'è
+  // una valle vicina in cui scendere (via di fuga con le discendenze o il motore in avaria). Idea nuova per la montagna.
+  if (!terrain.demo && Number.isFinite(samples[0].lon)) {
+    if (!samples._valley) samples._valley = samples.map((q, i) => {
+      const a = samples[Math.max(0, i - 1)], b = samples[Math.min(samples.length - 1, i + 1)], brg = bearingDeg(a, b);
+      let mn = Infinity;
+      for (const side of [-1, 1]) for (const f of [0.25, 0.5, 0.75, 1]) { const p2 = destPoint([q.lon, q.lat], brg + 90 * side, f), e = terrain.elevFt(p2[0], p2[1]); if (Number.isFinite(e) && e < mn) mn = e; }
+      return Number.isFinite(mn) ? Math.min(mn, q.terr) : NaN;
+    });
+    const V = samples._valley;
+    if (V.some((v, i) => samples[i].terr - v > 300)) {
+      const vpath = () => { ctx.beginPath(); let pen = false; samples.forEach((q, i) => { if (!Number.isFinite(V[i])) { pen = false; return; } (pen ? ctx.lineTo : ctx.moveTo).call(ctx, X(q.dist), Y(V[i])); pen = true; }); };
+      vpath(); ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 3.5; ctx.stroke();
+      vpath(); ctx.strokeStyle = '#0b7a3e'; ctx.lineWidth = 2; ctx.setLineDash([5, 4]); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = '#0b7a3e'; ctx.font = `600 ${fs}px ${FONT}`; ctx.fillText('verde: fondovalle entro 1 NM', L + 6, H - B - 6); ctx.font = `${fs}px ${FONT}`;
+    }
+  }
   if (ui.pilot.value === 'basico') {
     ctx.setLineDash([7, 5]); ctx.strokeStyle = '#d98a00'; ctx.lineWidth = 2; ctx.beginPath();
     samples.forEach((s, i) => (i ? ctx.lineTo : ctx.moveTo).call(ctx, X(s.dist), Y(s.vds)));
@@ -1125,7 +1221,8 @@ function drawProfile(samples, total, altFt, marks = [], opt = {}) {
     ctx.fillStyle = '#f59e0b'; roundRect(ctx, tx, ty, tw, 22, 6); ctx.fill();
     ctx.fillStyle = '#111827'; ctx.fillText(txt, tx + 7, ty + 15);
   }
-  for (const m of marks) {
+  drawProfile.boxes = [];
+  for (const m of [...marks.filter(k => !k.small), ...marks.filter(k => k.small)]) {
     const a = Number.isFinite(m.alt) ? m.alt : altFt;
     // quota del punto non raggiungibile col rateo dell'aereo: tratteggio rosso dalla linea al nodo
     if (m.short) { ctx.strokeStyle = CLR.crit; ctx.lineWidth = 2; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(X(m.dist), Y(m.line)); ctx.lineTo(X(m.dist), Y(a)); ctx.stroke(); ctx.setLineDash([]); }
@@ -1134,8 +1231,15 @@ function drawProfile(samples, total, altFt, marks = [], opt = {}) {
     if (m.small) { ctx.fillStyle = ink; ctx.fill(); } else { ctx.fillStyle = '#ffffff'; ctx.fill(); ctx.lineWidth = 2.5; ctx.strokeStyle = m.short ? CLR.crit : routeC; ctx.stroke(); }
     ctx.fillStyle = m.small ? muted : ink;
     ctx.font = `${m.small ? 400 : 600} ${fs}px ${FONT}`;
-    ctx.fillText(m.name, X(m.dist) - 8, Y(a) + (m.small ? 16 : -10));
+    // scritte dentro il disegno e senza sovrapporsi: prima i punti, poi gli eventi (TOC, TOD…) se c'è posto
+    const tw = ctx.measureText(m.name).width, tx = Math.max(L - 4, Math.min(W - R - tw, X(m.dist) - 8)), ty = Y(a) + (m.small ? 16 : -10);
+    const box = { x0: tx - 2, x1: tx + tw + 2, y0: ty - fs, y1: ty + 3 };
+    (drawProfile.boxes ||= []);
+    if (m.small && drawProfile.boxes.some(b => box.x0 < b.x1 && box.x1 > b.x0 && box.y0 < b.y1 && box.y1 > b.y0)) continue;
+    drawProfile.boxes.push(box);
+    ctx.fillText(m.name, tx, ty);
   }
+  drawProfile.boxes = [];
   ctx.font = `${fs}px ${FONT}`;
   ctx.fillStyle = ink;
   const varies = samples.some(s => Number.isFinite(s.alt) && s.alt !== samples[0].alt);
@@ -1169,7 +1273,8 @@ function renderChips() {
   const n = state.airspaces.filter(a => a.clipped.length).length;
   $('chips').innerHTML = `<span class="chip" title="Versione del programma">AerIA VFR ${VERSION}</span><span class="chip ${terrain.demo ? 'demo' : 'real'}">Terreno: ${esc(terrain.label())}</span>`
     + `<span class="chip ${state.airDemo ? 'demo' : 'real'}">Spazi aerei: ${esc(state.airSource)} · ${n}</span>`;
-  $('banner').textContent = terrain.demo || state.airDemo ? 'Contiene dati inventati: non usare per il volo' : 'Prototipo: non usare per la navigazione';
+  { const demo = terrain.demo || state.airDemo, long = demo ? 'Contiene dati inventati: non usare per il volo' : 'Prototipo: non usare per la navigazione';
+    $('banner').innerHTML = `<span class="pl">${long}</span><span class="ps">${demo ? 'Dati inventati' : 'Prototipo'}</span>`; $('banner').title = long; }
   $('attrib').textContent = state.attribution.join(' · ');
 }
 function sunLine() {
@@ -1211,7 +1316,7 @@ function renderWaypoints() {
     const li = last ? null : legInfo(i);
     return `<div class="wp${end ? ' end' : ''}"><span class="no">${i + 1}</span><input aria-label="Nome del punto ${i + 1}" data-wp="${i}" value="${esc(p.name || `P${i + 1}`)}">${alt}<button class="x" type="button" data-del="${i}" aria-label="Togli il punto ${i + 1}">${ic('close')}</button>
       <div class="meta">${i === 0 && R.length > 1 ? `${onGround ? `a terra ${gIn}<span class="u">ft</span> · ` : ''}<label class="air"><input type="checkbox" data-air ${p.airborne ? 'checked' : ''}> già in volo</label> · ` : ''}${last && R.length > 1 ? 'arrivo a terra (quota a destra) · ' : ''}terreno ${Number.isFinite(g) ? Math.round(g) + ' ft' : '—'}${fld ? ` · campo ${Math.round(fld.elevM * FT)} ft` : ''}${i === 0 && onGround ? ' · casella: quota dopo il decollo' : ''}${m ? ` · <b title="${LEG_CLEAR_FT} ft sopra il rilievo più alto entro ${LEG_CORRIDOR_M} m dai tratti del punto (${m.terrFt} ft)">min ${m.minFt} ft</b>` : ''}</div>${mv}
-      ${li ? `<div class="leg">↓ ${String(li.trkM).padStart(3, '0')}° M · ${(li.d / NM).toFixed(1)} NM${li.min ? ` · ${li.min} min` : ''}</div>` : ''}</div>`;
+      ${li ? `<div class="leg">↓ ${String(li.trkM).padStart(3, '0')}° M · ${(li.d / NM).toFixed(1).replace('.', ',')} NM${li.min ? ` · ${li.min} min` : ''}</div>` : ''}</div>`;
   }).join('') + (R.length > 1 ? `<p class="note beginner-only" style="margin-top:8px">Sulla carta trascina il cerchio di un punto per spostarlo e la maniglia blu per cambiarne la quota (3D); nel profilo in basso tocca un punto e trascinalo su o giù. La quota di un punto si raggiunge sul punto; la rotta tra due punti è dritta e resta almeno ${LEG_CLEAR_FT} ft sopra il rilievo più alto che incontra.</p>
     ${state.profile ? `<p class="note" style="margin-top:4px">Salite e discese con ${esc(state.profile.climb.src)}, discesa ${state.profile.descent.fpm} ft/min${state.profile.arrGround ? `, sull'arrivo circuito a ${state.profile.circuitFt} ft e atterraggio` : ''}. Tempi senza vento a ${Math.round(currentAircraft().iasKt) || '—'} kt. Aereo: ${esc(currentAircraft().name)} (si cambia nel «Piano di volo»).</p>` : ''}` : '') || '<p class="note" style="margin-top:8px">Nessun punto.</p>';
 }
@@ -1219,7 +1324,7 @@ function renderWaypoints() {
 function planNav() {
   if (state.route.length < 2) return null;
   const ctx = navCtx(), st = state.nl.st, ac = currentAircraft(), unit = st.speedUnit || ac.speedUnit || 'kt', route = ctx.route();
-  const year = decimalYear(new Date((ui.date.value || new Date().toISOString().slice(0, 10)) + 'T12:00:00Z'));
+  const year = decimalYear(new Date((ui.date.value || localDate()) + 'T12:00:00Z'));
   const legs = route.slice(0, -1).map((p, k) => { const l = (st.legs || [])[k] || {};
     return { ...l, levelFt: Number.isFinite(p.altFt) ? p.altFt : undefined, ...(l.ias !== '' && l.ias != null ? { iasKt: Number(l.ias) / (unit === 'kmh' ? KMH_PER_KT : 1) } : {}) }; });
   const nav = computeNavlog({ route, aircraft: ac, cruiseFt: cruise(), qnh: qnh(), toTime: st.toTime, legs }, { decl: (lon, lat) => declOf(state.decl, lon, lat, year), windAt: ctx.windAt, oatAt: ctx.oatAt });
@@ -1250,7 +1355,7 @@ function daylightWarnings() {
     text: `Fine del giorno aeronautico a ${arr.name}: ${localHM(sa.dayEnd)} (${sa.ruleEnd}; tramonto ${localHM(sa.set)}). Volo di ${t} min${how}, riserva esclusa. Ora di decollo nel «Piano di volo» per il controllo completo.`,
     plain: `Per arrivare prima che sia notte (alle ${localHM(sa.dayEnd)} a ${arr.name}) devi decollare entro le ${localHM(last)}. Se hai bisogno della riserva, parti prima.` }];
 }
-const hm = m => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
+const hm = m => fmtDurIt(m, 'round');
 function renderSummary(an) {
   const bub = $('bubble'), wc = $('warnCount');
   if (state.route.length < 2) {
@@ -1263,7 +1368,7 @@ function renderSummary(an) {
   const crit = an.warnings.filter(w => w.lvl === 'crit').length, warn = an.warnings.filter(w => w.lvl === 'warn').length;
   // «senza problemi» solo se non c'è nulla da controllare: un avviso di attenzione non è un via libera
   const head = crit ? `${crit} ${crit === 1 ? 'problema da risolvere' : 'problemi da risolvere'}` : warn ? `${warn} ${warn === 1 ? 'punto da controllare' : 'punti da controllare'}` : 'Nessun problema con i dati caricati';
-  const nm = (an.total / NM).toFixed(1), t = routeTimeMin(), pl = state.planRes;
+  const nm = (an.total / NM).toFixed(1).replace('.', ','), t = routeTimeMin(), pl = state.planRes;
   const trip = Number.isFinite(pl?.nav?.tripFuelL) && pl.nav.tripFuelL > 0 ? pl.nav.tripFuelL : t && ac.fuelFlowLh ? ac.fuelFlowLh * t / 60 : NaN;
   const fuel = Number.isFinite(trip) ? Math.ceil(trip) : null, minL = pl?.fuel?.min?.L;
   // carburante a bordo (Piano di volo → Carburante a bordo): autonomia e margine sul minimo (volo, alternato, riserva)
@@ -1293,10 +1398,17 @@ function dataQualityHtml() {
   // solo quelli vicini alla rotta (20 km) o, senza rotta, nell'area mostrata: gli altri non riguardano questo volo
   const rb = boundsAround(state.route, 20);
   const near = a => (rb ? a.bbox && a.bbox.lonMax >= rb.lonMin && a.bbox.lonMin <= rb.lonMax && a.bbox.latMax >= rb.latMin && a.bbox.latMin <= rb.latMax : bboxInFocus(a.bbox));
-  const sus = state.airspaces.filter(a => a.suspect && near(a));
-  if (!sus.length) return '';
-  const names = sus.slice(0, 5).map(a => `${esc(a.name)} (${esc(limitText(a.lower))}–${esc(limitText(a.upper))})`).join('; ');
-  return `<div class="warn warn"><b>Dati da verificare: ${sus.length} ${sus.length === 1 ? 'spazio aereo' : 'spazi aerei'}</b><span class="wt">Il tetto risulta sotto il terreno, quindi non si vedono: possibile errore della fonte (MSL al posto di AGL). Controlla sulla carta ufficiale. ${names}${sus.length > 5 ? '…' : ''}</span></div>`;
+  const dub = state.airspaces.filter(a => a.doubt && !a.suspect && near(a)), sus = state.airspaces.filter(a => a.suspect && near(a));
+  let html = '';
+  if (dub.length) {
+    const names = dub.slice(0, 5).map(a => `${esc(a.name)} (${esc(limitText(a.lower))}–${esc(limitText(a.upperSource))} nella fonte)`).join('; ');
+    html += `<div class="warn warn"><b>Limite incerto: ${dub.length} ${dub.length === 1 ? 'spazio aereo' : 'spazi aerei'}</b><span class="wt">Nella fonte il tetto è sotto il terreno (probabilmente AGL scritto come MSL). Per prudenza il programma lo legge sopra il terreno: questi spazi si vedono ed entrano nei controlli. Controlla il limite vero sulla carta ufficiale. ${names}${dub.length > 5 ? '…' : ''}</span></div>`;
+  }
+  if (sus.length) {
+    const names = sus.slice(0, 5).map(a => `${esc(a.name)} (${esc(limitText(a.lower))}–${esc(limitText(a.upper))})`).join('; ');
+    html += `<div class="warn warn"><b>Dati da verificare: ${sus.length} ${sus.length === 1 ? 'spazio aereo' : 'spazi aerei'}</b><span class="wt">Limiti impossibili nella fonte (base sopra il tetto): non si possono disegnare né controllare. Controlla sulla carta ufficiale. ${names}${sus.length > 5 ? '…' : ''}</span></div>`;
+  }
+  return html;
 }
 function renderWarnings(an) {
   const box = $('warnings');
@@ -1376,6 +1488,53 @@ function renderRadio() {
     </div>`).join('');
 }
 
+// ---------------------------------------------------------------- consigliere di quota (advisor.js)
+// Confronta le quote di crociera per la rotta pianificata: un tocco applica la quota scelta. Le quote scritte a mano sui
+// singoli punti restano (sono del pilota); il confronto vale per la crociera.
+function renderAdvisor() {
+  const box = $('advisor');
+  if (!state.showAdv) { box.classList.remove('on'); return; }
+  box.classList.add('on');
+  const an = state.analysis, R = state.route;
+  if (R.length < 2 || !an?.samples?.length) { box.innerHTML = `<div class="eh"><b>Quota di crociera</b><button type="button" class="btn" data-a="close">Chiudi</button></div><p class="note">Disegna prima una rotta con almeno due punti.</p>`; return; }
+  const mins = legMins().filter(Boolean), minFt = mins.length ? Math.max(...mins.map(m => m.minFt)) : NaN;
+  const ctx = navCtx(), ac = currentAircraft(), route = ctx.route(), year = decimalYear(new Date((ui.date.value || localDate()) + 'T12:00:00Z'));
+  const env = { decl: (lon, lat) => declOf(state.decl, lon, lat, year), windAt: ctx.windAt, oatAt: ctx.oatAt };
+  const navAt = alt => {
+    try {
+      const n = computeNavlog({ route, aircraft: ac, cruiseFt: alt, qnh: qnh(), toTime: '', legs: route.slice(0, -1).map(() => ({})) }, env);
+      let dw = 0, d = 0; for (const l of n.legs) if (Number.isFinite(l.tasKt) && Number.isFinite(l.gsKt)) { dw += (l.tasKt - l.gsKt) * l.distKm; d += l.distKm; }
+      return { min: n.totalMin, fuelL: n.tripFuelL, headKt: d ? dw / d : NaN, wind: !!ctx.windAt };
+    } catch { return null; }
+  };
+  const nav = state.nav, longest = nav?.legs?.length ? nav.legs.reduce((a, b) => (b.distKm > a.distKm ? b : a)) : null;
+  const res = altitudeOptions({ samples: an.samples, minFt, pilot: ui.pilot.value, rule: entryRule, magTrackDeg: longest ? longest.tcM : NaN, navAt });
+  const NEED_SHORT = { vietato: 'vietato', verifica: 'da verificare', autorizzazione: 'autorizzazione', transponder: 'transponder', radio: 'radio', evitare: 'da evitare' };
+  const cur = cruise();
+  const row = r => {
+    const sp = Object.entries(r.air).map(([k, n]) => `<span class="${k === 'vietato' ? 'bad' : k === 'radio' || k === 'transponder' ? '' : 'wn'}">${n} ${esc(NEED_SHORT[k] || k)}</span>`).join(' · ') || '<span class="ok">nessuno</span>';
+    const nv = r.nav, wind = nv && Number.isFinite(nv.headKt) && nv.wind ? (Math.abs(nv.headKt) < 1 ? 'calmo' : nv.headKt > 0 ? `${Math.round(nv.headKt)} kt in prua` : `${Math.round(-nv.headKt)} kt in coda`) : '—';
+    return `<tr data-alt="${r.alt}" class="${r.blocked ? 'blk' : ''} ${r.alt === cur ? 'cur' : ''} ${r.best ? 'best' : ''}" title="${esc(r.names.map(x => `${x.name}: ${NEED_SHORT[x.need] || x.need}`).join('\n'))}">
+      <td><b>${fmtFt(r.alt)}</b></td><td>${r.terrOk ? '<span class="ok">ok</span>' : `<span class="bad">sotto il minimo</span>`}</td>
+      ${ui.pilot.value === 'basico' ? `<td>${r.vdsOk ? '<span class="ok">ok</span>' : '<span class="bad">oltre</span>'}</td>` : ''}
+      <td>${sp}</td><td>${nv && Number.isFinite(nv.min) ? fmtDurIt(nv.min, 'round') : '—'}</td><td>${nv && Number.isFinite(nv.fuelL) ? `${Math.ceil(nv.fuelL)} l` : '—'}</td><td>${wind}</td>
+      <td>${r.semicircular === null ? '—' : r.semicircular ? '<span class="ok">sì</span>' : 'no'}</td></tr>`;
+  };
+  box.innerHTML = `<div class="eh"><b>Quota di crociera: confronto</b><button type="button" class="btn" data-a="close">Chiudi</button></div>
+    <p class="note">Tocca una riga per usare quella quota. Minimo dei tratti ${Number.isFinite(minFt) ? `<b>${fmtFt(minFt)} ft</b> (rilievo più alto entro ${LEG_CORRIDOR_M} m + ${LEG_CLEAR_FT} ft)` : 'in calcolo'}${res.vdsMax ? ` · limite VDS più basso lungo la rotta <b>${fmtFt(res.vdsMax)} ft</b>` : ''}. ★ = quota suggerita: nessun blocco, meno spazi da chiamare, poi meno tempo contando la salita. Vento: ${ctx.windAt ? 'previsione ICON-2I' : 'non caricato (scheda Meteo): tempi senza vento'}. Spazi e terreno: tratti in crociera, salita e discesa escluse.</p>
+    ${res.rows.every(r => r.blocked) ? `<div class="warn warn"><b>Nessuna quota unica va bene per tutta la rotta</b><span class="wt">${res.rows.every(r => !r.terrOk || !r.vdsOk) && ui.pilot.value === 'basico' ? 'Con il VDS il limite sul rilievo (più basso nelle valli) e il minimo sopra le creste non si incontrano: dai una quota diversa ai singoli punti (casella della quota) o cambia percorso.' : 'Ogni quota passa sotto il minimo dei tratti, oltre un limite o dentro uno spazio vietato: dai una quota diversa ai singoli punti o cambia percorso.'}</span></div>` : ''}
+    <div class="advt"><table><thead><tr><th>Quota (ft)</th><th>Terreno</th>${ui.pilot.value === 'basico' ? '<th>VDS</th>' : ''}<th>Spazi aerei</th><th>Tempo</th><th>Carb.</th><th>Vento</th><th>Livello VFR</th></tr></thead>
+    <tbody>${res.rows.map(row).join('')}</tbody></table></div>`;
+  box.querySelector('tr.cur, tr.best')?.scrollIntoView({ block: 'center' });
+}
+$('advBtn').addEventListener('click', () => { state.showAdv = !state.showAdv; renderAdvisor(); });
+$('advisor').addEventListener('click', e => {
+  if (e.target.closest('[data-a="close"]')) { state.showAdv = false; renderAdvisor(); return; }
+  const tr = e.target.closest('tr[data-alt]'); if (!tr) return;
+  ui.cruise.value = tr.dataset.alt; ui.cruise.dispatchEvent(new Event('change'));
+  state.showAdv = false; renderAdvisor();
+});
+
 // ---------------------------------------------------------------- volo: GPS o simulazione
 function routeLegs() {
   const r = state.route, legs = [];
@@ -1387,13 +1546,10 @@ function nextWaypoint() {
   if (state.direct && f.pos) return { p: { lon: state.direct.lon, lat: state.direct.lat, name: `Diretto ${state.direct.icao || titleCaseIt(state.direct.name)}` }, i: -1, d: distM(f.pos, state.direct), direct: true };
   if (!f.pos || r.length < 2) return null;
   if (f.source === 'sim' && f.sim) { const leg = routeLegs()[f.sim.leg]; return leg ? { p: leg.b, i: leg.i + 1 } : null; }
-  // GPS: il primo punto davanti a sé (angolo rispetto alla rotta < 90°), altrimenti il più vicino
-  let best = null;
-  r.forEach((p, i) => {
-    const d = distM(f.pos, p), ang = Math.abs(((bearingDeg(f.pos, p) - f.trk + 540) % 360) - 180);
-    if (ang < 90 && (!best || i < best.i)) best = { p, i, d };
-  });
-  return best;
+  // GPS: tratto attivo con memoria (navseq.js). Prima era «il primo punto davanti con l'indice più basso»: sulle rotte
+  // a U o di andata e ritorno indicava un punto già passato (collaudo 0.21.0, A3).
+  const a = navStep(f.seq, r, f.pos, f.gsKt > 5 ? f.trk : NaN);
+  return a ? { p: a.to, i: a.toIndex, d: a.toNextM, xtM: a.xtM } : null;
 }
 // ---------------------------------------------------------------- strumenti di volo a scelta
 // Ogni casella della barra si tocca per scegliere il dato. L'elenco e l'ordine restano nel dispositivo.
@@ -1410,14 +1566,13 @@ const instDefault = () => ['gs', 'alt', 'agl', 'trk', 'next', 'ete', 'xtk', ui.p
 state.inst = Array.isArray(prefs.inst) && prefs.inst.length === 8 && prefs.inst.every(k => INST.some(x => x[0] === k)) ? prefs.inst : null; // null = predefinite
 const deg3 = x => String(Math.round(((x % 360) + 360) % 360) || 360).padStart(3, '0');
 // tempi brevi in minuti e secondi (7:05), oltre l'ora in ore e minuti (1 h 25)
-const minSec = m => (!Number.isFinite(m) ? '—' : m >= 60 ? `${Math.floor(m / 60)} h ${String(Math.floor(m % 60)).padStart(2, '0')}` : `${Math.floor(Math.round(m * 60) / 60)}:${String(Math.round(m * 60) % 60).padStart(2, '0')}`);
 // Valori di tutti gli strumenti: [etichetta, valore, classe]
 function instValues(c) {
   const f = state.fly, pilot = ui.pilot.value, dec = declAt(f.pos.lon, f.pos.lat), now = c.now, nw = c.nw;
   const destP = state.route.length > 1 ? state.route.at(-1) : null, dDest = destP ? distM(f.pos, destP) / NM : NaN;
   const eteDest = f.gsKt > 20 && Number.isFinite(dDest) ? dDest / f.gsKt * 60 : NaN;
   const arrF = destP ? fieldAt(state.feats, destP) : null, tgt = arrF ? arrF.elevM * FT + 1000 : NaN;
-  const st = sunTimes(ui.date.value || new Date(now).toISOString().slice(0, 10), f.pos.lat, f.pos.lon, ui.pilot.value), lightMin = (st.dayEnd - now) / 60000;
+  const st = sunTimes(localDate(now), f.pos.lat, f.pos.lon, ui.pilot.value), lightMin = (st.dayEnd - now) / 60000;
   const tm = state.timers, rem = reminderState(tm.reminder, now), fe = c.fuel;
   const q = state.wx ? nearestQnh(state.wx.stations, f.pos) : null;
   const w = c.wind;
@@ -1426,22 +1581,22 @@ function instValues(c) {
     alt: [f.source === 'sim' ? 'Quota simulata' : f.altLabel || 'Quota GPS', `${Math.round(f.altFt / 10) * 10} ft`, f.altFt < c.terr ? 'crit' : ''],
     agl: ['Sopra il terreno', Number.isFinite(c.terr) ? `${Math.round(f.altFt - c.terr)} ft` : '—', c.airborne && f.altFt - c.terr < 500 && !c.nearField ? 'crit' : ''],
     trk: ['Rotta seguita', f.gsKt > 5 ? `${deg3(f.trk - dec)}° M` : '—'],
-    next: [nw ? `Prossimo: ${nw.p.name || 'P' + (nw.i + 1)}` : 'Prossimo punto', nw ? `${c.distNw.toFixed(1)} NM` : '—'],
+    next: [nw ? `Prossimo: ${nw.p.name || 'P' + (nw.i + 1)}` : 'Prossimo punto', nw ? `${c.distNw.toFixed(1).replace('.', ',')} NM` : '—'],
     brg: [nw ? `Rotta per ${nw.p.name || 'P' + (nw.i + 1)}` : 'Rotta al prossimo', nw ? `${deg3(bearingDeg(f.pos, nw.p) - dec)}° M` : '—'],
-    ete: ['Tempo al punto', minSec(c.ete)],
+    ete: ['Tempo al punto', fmtEte(c.ete)],
     eta: ['Ora al prossimo', Number.isFinite(c.ete) ? localHM(now + c.ete * 60000) : '—'],
-    dest: [destP ? `All’arrivo: ${destP.name || 'arrivo'}` : 'Distanza all’arrivo', Number.isFinite(dDest) ? `${dDest.toFixed(1)} NM` : '—'],
-    destete: ['Tempo all’arrivo', minSec(eteDest)],
+    dest: [destP ? `All’arrivo: ${destP.name || 'arrivo'}` : 'Distanza all’arrivo', Number.isFinite(dDest) ? `${dDest.toFixed(1).replace('.', ',')} NM` : '—'],
+    destete: ['Tempo all’arrivo', fmtEte(eteDest)],
     desteta: ['Ora di arrivo', Number.isFinite(eteDest) ? localHM(now + eteDest * 60000) : '—', Number.isFinite(eteDest) && now + eteDest * 60000 > st.dayEnd ? 'crit' : ''],
     // con «diretto» attivo il fuori rotta non ha senso: la casella mostra la rotta magnetica diretta
-    xtk: nw?.direct ? ['Rotta diretta', `${deg3(bearingDeg(f.pos, nw.p) - dec)}° M`] : [c.xt === null || Math.abs(c.xt) < 0.05 ? 'Fuori rotta' : `Fuori rotta a ${c.xt > 0 ? 'destra' : 'sinistra'}`, c.xt === null ? '—' : Math.abs(c.xt) < 0.05 ? 'in rotta' : `${Math.abs(c.xt).toFixed(1)} NM`, c.xt !== null && Math.abs(c.xt) > 1 ? 'crit' : ''],
+    xtk: nw?.direct ? ['Rotta diretta', `${deg3(bearingDeg(f.pos, nw.p) - dec)}° M`] : [c.xt === null || Math.abs(c.xt) < 0.05 ? 'Fuori rotta' : `Fuori rotta a ${c.xt > 0 ? 'destra' : 'sinistra'}`, c.xt === null ? '—' : Math.abs(c.xt) < 0.05 ? 'in rotta' : `${Math.abs(c.xt).toFixed(1).replace('.', ',')} NM`, c.xt !== null && Math.abs(c.xt) > 1 ? 'crit' : ''],
     vs: ['Variometro', Number.isFinite(c.vs) ? `${c.vs > 0 ? '+' : c.vs < 0 ? '−' : ''}${Math.abs(Math.round(c.vs / 10) * 10)} ft/min` : '—'],
     vsr: [arrF ? `Rateo per ${arrF.icao || titleCaseIt(arrF.name)} +1000 ft` : 'Rateo per l’arrivo', Number.isFinite(tgt) && f.gsKt > 20 ? (f.altFt <= tgt ? 'in quota' : `−${Math.round(-requiredVsFpm(f.altFt, tgt, dDest, f.gsKt) / 10) * 10} ft/min`) : '—'],
     vds: ['Limite VDS qui', pilot === 'basico' ? `${Math.round(c.vdsLim / 10) * 10} ft` : 'non VDS', pilot === 'basico' && f.altFt > c.vdsLim ? 'crit' : ''],
-    light: ['Luce restante', lightMin > 0 ? `${fmtDur(lightMin)} h` : 'notte', lightMin < 30 ? 'crit' : ''],
-    ftime: ['Tempo di volo', f.ph.takeoffAt ? fmtDur((now - f.ph.takeoffAt) / 60000) : 'a terra'],
-    remind: [tm.reminder ? `Promemoria: ${tm.reminder.label}` : 'Promemoria', rem ? fmtMS(rem.nextSec) : 'spento', rem && rem.nextSec < 60 ? 'crit' : ''],
-    fuel: ['Carburante stimato', fe ? `${Math.round(fe.remL)} l · ${fmtDur(fe.endMin)}` : 'non impostato', fe && fe.usableMin < 15 ? 'crit' : ''],
+    light: ['Luce restante', lightMin > 0 ? fmtDurIt(lightMin) : 'notte', lightMin < 30 ? 'crit' : ''],
+    ftime: ['Tempo di volo', f.ph.takeoffAt ? fmtDurIt((now - f.ph.takeoffAt) / 60000) : 'a terra'],
+    remind: [tm.reminder ? `Promemoria: ${tm.reminder.label}` : 'Promemoria', rem ? fmtEte(rem.nextSec / 60) : 'spento', rem && rem.nextSec < 60 ? 'crit' : ''],
+    fuel: ['Carburante stimato', fe ? `${Math.round(fe.remL)} l · ${fmtDurIt(fe.endMin)}` : 'non impostato', fe && fe.usableMin < 15 ? 'crit' : ''],
     gpsacc: ['Precisione GPS (quota)', Number.isFinite(f.gpsAltAcc) ? `±${Math.round(f.gpsAltAcc)} ft` : f.source === 'sim' ? 'simulazione' : '—'],
     qnhnear: [q ? `QNH ${q.id}` : 'QNH più vicino', q ? `${q.qnh} hPa` : '—'],
     wind: [w ? `Vento (${w.src})` : 'Vento previsto qui', w ? `${deg3(w.dir)}/${Math.round(w.kt)} kt` : '—'],
@@ -1456,13 +1611,16 @@ function renderInstruments(c) {
 $('instruments').addEventListener('click', e => {
   const b = e.target.closest('[data-slot]'); if (!b) return;
   const slot = Number(b.dataset.slot), menu = $('instMenu'), r = b.getBoundingClientRect(), vr = $('view').getBoundingClientRect();
-  menu.innerHTML = `<b>Casella ${slot + 1}: scegli il dato</b><div class="grid">${INST.map(([k, l]) => `<button type="button" class="${(state.inst || instDefault())[slot] === k ? 'on' : ''}" data-k="${k}">${esc(l)}</button>`).join('')}</div><button type="button" class="btn" data-k="__reset">Caselle predefinite</button>`;
+  const f = state.fly, seqOk = f.active && f.source !== 'sim' && state.route.length > 2 && Number.isInteger(f.seq?.leg) && !state.direct;
+  const legBar = seqOk ? `<div class="row" style="margin:0 0 8px;gap:6px"><button type="button" class="btn" data-k="__legprev" ${f.seq.leg <= 0 ? 'disabled' : ''}>◀ Tratto precedente</button><button type="button" class="btn" data-k="__legnext" ${f.seq.leg >= state.route.length - 2 ? 'disabled' : ''}>Tratto successivo ▶</button></div>` : '';
+  menu.innerHTML = `${legBar}<b>Casella ${slot + 1}: scegli il dato</b><div class="grid">${INST.map(([k, l]) => `<button type="button" class="${(state.inst || instDefault())[slot] === k ? 'on' : ''}" data-k="${k}">${esc(l)}</button>`).join('')}</div><button type="button" class="btn" data-k="__reset">Caselle predefinite</button>`;
   menu.dataset.slot = slot; menu.style.display = 'block';
   menu.style.left = `${Math.max(8, Math.min(r.left - vr.left, vr.width - menu.offsetWidth - 8))}px`; menu.style.top = `${r.bottom - vr.top + 6}px`;
 });
 $('instMenu').addEventListener('click', e => {
   const k = e.target.dataset.k, menu = $('instMenu');
   if (!k) return;
+  if (k === '__legprev' || k === '__legnext') { const f = state.fly; setLeg(f.seq, state.route, f.seq.leg + (k === '__legnext' ? 1 : -1)); menu.style.display = 'none'; flyTick(); return; }
   if (k === '__reset') state.inst = null; else { state.inst = [...(state.inst || instDefault())]; state.inst[Number(menu.dataset.slot)] = k; }
   menu.style.display = 'none'; savePrefs(); flyTick();
 });
@@ -1493,20 +1651,25 @@ function flyTick() {
   else if (f.source !== 'sim') { const ev = phaseStep(f.ph, { t: now, gsKt: f.gsKt, altFt: f.altFt, aglFt: f.altFt - terr, pos: f.pos }); if (ev?.kind === 'decollo') onTakeoff(ev.t); else if (ev?.kind === 'atterraggio') onLanding(ev.t); }
   const airborne = f.ph.phase === 'volo';
   f.alts.push({ t: now, altFt: f.altFt }); while (f.alts.length > 40) f.alts.shift();
+  // virata in corso (gradi al secondo, + a destra) dalla traccia degli ultimi 6 s: la previsione la segue
+  f.trks = (f.trks || []).filter(x => now - x.t <= 6000); if (f.gsKt > 30) f.trks.push({ t: now, trk: f.trk });
+  const tr0 = f.trks[0], tr1 = f.trks.at(-1), turnRate = tr0 && tr1 && tr1.t - tr0.t >= 2000 ? ((((tr1.trk - tr0.trk) % 360) + 540) % 360 - 180) / ((tr1.t - tr0.t) / 1000) : 0;
   // incertezza verticale: precisione dichiarata dal GPS (minimo 100 ft), 150 ft per la barometrica esterna, zero in simulazione
   const unc = f.source === 'sim' ? 0 : /barometrica/i.test(f.altLabel || '') ? 150 : Math.max(100, Number.isFinite(f.gpsAltAcc) ? f.gpsAltAcc : 250);
   const vsNow = verticalSpeedFpm(f.alts), nearField = nearFieldLow(f.pos, f.altFt), nf = nearestFields(f.pos, 1)[0];
   // in zona del campo la quota prevista non scende sotto quella del campo; VDS non avanzato: attenzione a 150 ft
   const la = lookahead({ pos: f.pos, trackDeg: f.trk, gsKt: f.gsKt, altFt: f.altFt, minutes: 5, stepSec: 10, pilot, qnh: qnh(), airspaces: checkAirspaces(), terrain, day: d, uncFt: unc, obstacles: state.feats?.obstacles || [], obstacleTopFt, vsFpm: airborne ? vsNow : 0,
-    floorFt: nearField && nf ? nf.a.elevM * FT : -Infinity, warnAglFt: pilot === 'basico' ? 150 : 300 });
+    floorFt: nearField && nf ? nf.a.elevM * FT : -Infinity, warnAglFt: pilot === 'basico' ? 150 : 300, turnRateDps: airborne ? turnRate : 0 });
   // A terra nessun avviso di terreno o ostacolo; vicino a un campo e sotto 1000 ft sul campo restano solo quelli gravi
   // (si è dentro il terreno o l'ostacolo), così decollo e atterraggio non suonano di continuo.
   f.events = la.events.filter(e => !['terrain', 'obstacle'].includes(e.kind) || (airborne && (e.lvl === 'crit' || !nearField)));
+  // spazi per cui il pilota ha confermato l'autorizzazione (o il contatto): restano in elenco, senza voce né banda rossa
+  for (const e of f.events) if (e.airspace && f.acked?.has(e.airspace.id)) e.acked = true;
   f.inside = la.inside;
   const vdsLim = pilot === 'basico' ? terrain.maxWithinFt(f.pos.lon, f.pos.lat) + d.vdsAgl : NaN;
   const nw = nextWaypoint();
   const distNw = nw ? distM(f.pos, nw.p) / NM : NaN, ete = nw && f.gsKt > 5 ? distNw / f.gsKt * 60 : NaN;
-  const xt = nw && !nw.direct && nw.i > 0 ? crossTrackM(state.route[nw.i - 1], nw.p, f.pos) / NM : null;
+  const xt = nw && !nw.direct && nw.i > 0 ? (Number.isFinite(nw.xtM) ? nw.xtM : crossTrackM(state.route[nw.i - 1], nw.p, f.pos)) / NM : null;
   const ac = currentAircraft(), tm = state.timers;
   const fuel = f.ph.takeoffAt ? fuelEstimate({ fuelL: tm.fuelL, flowLh: ac.fuelFlowLh, flightMin: (now - f.ph.takeoffAt) / 60000, reserveMin: Number(state.nl.st.reserveMin) || 30 }) : null;
   const destP = state.route.length > 1 ? state.route.at(-1) : null;
@@ -1520,18 +1683,20 @@ function flyTick() {
   // terreno colorato rispetto all'aereo, solo in volo e fuori dalla zona del campo
   setHazard(airborne && !nearField, f.altFt);
   // avviso grande per l'evento più vicino e grave
-  const top = f.events.filter(e => e.lvl === 'crit').sort((a, b) => a.t - b.t)[0];
+  // un solo avviso principale, per priorità: terreno e ostacoli, poi limite VDS, poi spazi aerei; a parità il più vicino
+  const PRI = { terrain: 0, obstacle: 0, vds: 1, airspace: 2 };
+  const top = f.events.filter(e => e.lvl === 'crit' && !e.acked).sort((a, b) => (PRI[a.kind] ?? 3) - (PRI[b.kind] ?? 3) || a.t - b.t)[0];
   const big = $('alertbig');
   if (top && top.t <= 120) { big.style.display = 'block'; big.textContent = eventSpeech(top); }
   else if (f.remindMsg && now - f.remindMsg.t < 20000) { big.style.display = 'block'; big.textContent = f.remindMsg.text; }
   else big.style.display = 'none';
   // voce: ogni evento una sola volta (ripetuto se si riavvicina sotto i 30 s)
   if (state.voice) for (const e of f.events) {
-    if (e.t > 120 || e.lvl === 'info') continue;
+    if (e.t > 120 || e.lvl === 'info' || e.acked) continue;
     const key = e.airspace ? e.airspace.id : `${e.kind}-${e.lvl}`, prev = f.spoken.get(key);
-    if (prev === undefined || (prev > 40 && e.t <= 30)) { f.spoken.set(key, e.t); say(eventSpeech(e)); }
+    if (prev === undefined || (prev > 40 && e.t <= 30)) { f.spoken.set(key, e.t); say(eventSpeech(e), e.lvl); }
   }
-  for (const w of f.extra) if (!f.spoken.has(w.title)) { f.spoken.set(w.title, 0); if (state.voice) say(w.title); }
+  for (const w of f.extra) if (!f.spoken.has(w.title)) { f.spoken.set(w.title, 0); say(w.title, w.lvl); }
   updateHighlight();
   f.fixPerf = performance.now(); buildPlane(); recordTrack(now); buildTrail();
   ensureTerrainFor(boundsAround([f.pos], 25));
@@ -1540,21 +1705,49 @@ function flyTick() {
   if (state.view === 'fly') { renderFlyWarnings(); drawAheadProfile(); }
   if (state.view === 'radio') renderRadio();
   renderTimers();
+  // carta libera: torna da sola sull'aereo dopo 30 s senza tocchi (il mirino resta per tornare subito)
+  if (state.view === 'fly' && !f.follow && !state.review && !f.hold && performance.now() - lastInteract > 30000) setFollow(true);
   followCamera();
 }
-function say(text) {
+// Avvisi sonori e a voce (tasto «Voce»). Nell'app Android la voce è quella nativa (plugin Voce): la WebView non ha la
+// sintesi vocale del web e fino alla 0.21.0 l'app restava muta (collaudo 0.21.0, A4). Un avviso grave suona due toni,
+// interrompe le frasi in corso e parla subito; gli altri si accodano. Codice di fringuello79 di Avezzano.
+const nativeVoice = () => (globalThis.Capacitor?.isNativePlatform?.() && globalThis.Capacitor?.Plugins?.Voce) || null;
+let audioCtx = null;
+addEventListener('pointerdown', () => { try { audioCtx ??= new (window.AudioContext || window.webkitAudioContext)(); if (audioCtx.state === 'suspended') audioCtx.resume(); } catch { audioCtx = null; } }, { passive: true });
+function tone(lvl) {
+  if (!audioCtx || audioCtx.state !== 'running') return;
+  const seq = lvl === 'crit' ? [[880, 0], [660, 0.18], [880, 0.36], [660, 0.54]] : [[740, 0], [740, 0.22]];
+  for (const [f, t0] of seq) {
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain(), t = audioCtx.currentTime + t0;
+    o.type = 'square'; o.frequency.value = f; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.25, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
+    o.connect(g).connect(audioCtx.destination); o.start(t); o.stop(t + 0.16);
+  }
+}
+function say(text, lvl = 'warn') {
+  if (!state.voice || !text) return;
+  if (lvl === 'crit' || lvl === 'warn') tone(lvl);
+  const nat = nativeVoice();
+  if (nat) { nat.parla({ testo: text, subito: lvl === 'crit' }).catch(() => {}); return; }
   if (!('speechSynthesis' in window)) return;
+  if (lvl === 'crit') window.speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text); u.lang = 'it-IT'; u.rate = 1.0; window.speechSynthesis.speak(u);
 }
 function renderFlyWarnings() {
   const f = state.fly, box = $('warnings');
   if (!f.pos) { box.innerHTML = '<div class="warn info"><b>In attesa della posizione</b>Premi «Avvia GPS» per usare il GPS del dispositivo, oppure «Simula» per provare lungo la rotta pianificata.</div>'; return; }
+  if (f.lost) {
+    box.innerHTML = `<div class="warn crit"><b>Posizione non aggiornata da ${Math.round(fixAgeS())} s</b><span class="wt">Il GPS non manda posizioni: aereo, strumenti e avvisi previsti sono fermi e non vanno usati. Naviga a vista e con gli strumenti di bordo; il programma riprende da solo appena la posizione torna.</span></div>`;
+    return;
+  }
   const items = f.events.map(e => {
     const mm = Math.floor(e.t / 60), ss = String(Math.round(e.t % 60)).padStart(2, '0'), when = e.t < 15 ? 'adesso' : `tra ${mm}:${ss}`;
     const title = e.kind === 'terrain' ? 'Terreno' : e.kind === 'obstacle' ? `Ostacolo (${e.obstacle.kind})` : e.kind === 'vds' ? 'Limite VDS' : (e.marginal ? 'Vicino a ' : '') + e.airspace.name;
     const text = e.kind === 'obstacle' ? `Margine ${Math.round(e.clearance)} ft sulla sommità${e.obstacle.heightM == null ? ` (altezza non nota, considerata ${unknownHeightM(e.obstacle)} m)` : ''}.` : e.kind === 'airspace' ? (e.marginal ? `Potresti entrarci: sei a ${Math.round(e.gap)} ft dal limite, meno dell'incertezza della quota. ` : '') + e.rule.text : e.kind === 'vds' ? `Saresti ${Math.round(e.over)} ft sopra il limite.` : `Margine ${Math.round(e.clearance)} ft.`;
     const c = e.airspace ? contactInfo(e.airspace) : null;
-    return `<div class="warn ${e.lvl}"><b>${esc(title)} ${when}</b>${esc(text)}${c && c.freq ? ` Chiama ${esc(c.unit)} ${esc(c.freq)}.` : ''}</div>`;
+    if (e.acked) return `<div class="warn info"><b>${esc(title)} ${when}</b>Autorizzazione o contatto confermati da te: nessun avviso sonoro per questo spazio in questo volo.</div>`;
+    const ack = e.airspace && e.rule && ['autorizzazione', 'radio', 'transponder', 'verifica'].includes(e.rule.need) ? `<button type="button" class="btn sm" data-ack="${esc(e.airspace.id)}">${e.rule.need === 'autorizzazione' ? 'Ho l’autorizzazione' : e.rule.need === 'verifica' ? 'Verificata: non attiva' : 'In contatto'}</button>` : '';
+    return `<div class="warn ${e.lvl}"><b>${esc(title)} ${when}</b>${esc(text)}${c && c.freq ? ` Chiama ${esc(c.unit)} ${esc(c.freq)}.` : ''}${ack ? `<div style="margin-top:6px">${ack}</div>` : ''}</div>`;
   });
   const inside = (f.inside || []).map(a => `<div class="warn info"><b>Sei dentro: ${esc(a.name)}</b>${esc(limitText(a.lower))}–${esc(limitText(a.upper))}</div>`);
   const extra = (f.extra || []).map(w => `<div class="warn ${w.lvl}"><b>${esc(w.title)}</b>${esc(w.text)}</div>`);
@@ -1562,6 +1755,13 @@ function renderFlyWarnings() {
     : nearFieldLow(f.pos, f.altFt) ? '<div class="warn info"><b>Zona del campo</b>Entro 2 NM da un campo e sotto 1000 ft: restano solo gli avvisi di terreno gravi e il rilievo non si colora.</div>' : '';
   box.innerHTML = extra.join('') + (items.join('') || '<div class="warn ok"><b>Nessun conflitto nei prossimi 5 minuti</b>Alla quota e rotta attuali, con i dati caricati.</div>') + inside.join('') + zone;
 }
+$('warnings').addEventListener('click', e => {
+  const b = e.target.closest('[data-ack]'); if (!b) return;
+  e.stopPropagation();
+  const f = state.fly; (f.acked ??= new Set()).add(b.dataset.ack);
+  f.ackLog = [...(f.ackLog || []), { id: b.dataset.ack, t: Date.now() }];
+  flyTick();
+});
 function drawAheadProfile() {
   const f = state.fly;
   if (!f.pos) { drawProfile(null); return; }
@@ -1590,7 +1790,10 @@ function stopFly() {
   clearInterval(f.timer);
   Object.assign(f, { active: false, source: null, watch: null, timer: null, sim: null, camGoal: null, follow: true });
   $('recenterBtn')?.setAttribute('aria-pressed', 'true');
-  f.ph = newPhase(); f.alts = []; f.extra = []; f.remindMsg = null; f.fixT = 0;
+  f.ph = newPhase(); f.alts = []; f.extra = []; f.remindMsg = null; f.fixT = 0; f.seq = newNavSeq(); f.last = null;
+  clearInterval(f.dog); f.dog = null; f.lost = false; f.acked = new Set(); f.gpsErr = 0; f.extFallback = false; f.watchCb = null;
+  if (f.fallbackWatch != null) { navigator.geolocation?.clearWatch(f.fallbackWatch); f.fallbackWatch = null; }
+  $('instruments').classList.remove('stale'); renderIntegrity();
   setHazard(state.terrPlan, cruise());
   $('gpsBtn').textContent = 'Avvia GPS'; $('simBtn').textContent = 'Simula';
   $('gpsBtn').classList.add('primary'); $('simBtn').classList.remove('on');
@@ -1602,7 +1805,7 @@ function startGps() {
   if (!('geolocation' in navigator)) { showFlyMsg('Questo dispositivo non offre il GPS al programma.'); return; }
   f.active = true; f.source = 'gps'; f.spoken.clear(); f.sessionT = Date.now(); keepAwake(true);
   $('gpsBtn').textContent = 'Ferma GPS'; $('gpsBtn').classList.remove('primary');
-  f.watch = navigator.geolocation.watchPosition(p => {
+  const onFix = p => {
     const c = p.coords, pos = { lon: c.longitude, lat: c.latitude };
     // rotta e velocità dal GPS; se mancano, si calcolano dai due ultimi punti
     if (f.last && (!Number.isFinite(c.speed) || !Number.isFinite(c.heading))) {
@@ -1616,14 +1819,144 @@ function startGps() {
       f.gpsAltOk = Number.isFinite(N);
       f.gpsAltAcc = Number.isFinite(c.altitudeAccuracy) ? c.altitudeAccuracy * FT : NaN;
     }
-    f.pos = pos; f.last = { pos, t: p.timestamp }; f.fixT = p.timestamp;
+    f.pos = pos; f.last = { pos, t: p.timestamp }; f.fixT = p.timestamp; f.fixWall = Date.now(); f.gpsErr = 0;
+    f.gpsAcc = Number.isFinite(c.accuracy) ? c.accuracy : NaN;
+    if (Number.isFinite(p.timestamp) && p.timestamp > 1.6e12) f.clockSkewS = (Date.now() - p.timestamp) / 1000;
     applyAltitude();
     flyTick();
-  }, err => {
-    stopFly();
-    showFlyMsg(err.code === 1 ? 'Il permesso di usare la posizione è stato negato. In questa pagina web il GPS può essere bloccato: usa l’app Android oppure la simulazione.' : 'Il GPS non risponde. Prova all’aperto, oppure usa la simulazione.');
-  }, { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 });
+  };
+  // Errori: solo il permesso negato ferma il GPS. Per «posizione non disponibile» e «timeout» la sorveglianza continua
+  // (norma W3C) e il semaforo mostra il dato che invecchia; se dopo 30 s non arriva nulla si riavvia la richiesta.
+  // Prima un solo timeout spegneva tutta la navigazione (collaudo 0.21.0, A1).
+  const onErr = err => {
+    if (err.code === 1) {
+      stopFly();
+      showFlyMsg('Il permesso di usare la posizione è stato negato. In questa pagina web il GPS può essere bloccato: usa l’app Android oppure la simulazione.');
+      return;
+    }
+    f.gpsErr = err.code; renderIntegrity();
+  };
+  f.watchOpts = { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 };
+  f.watchCb = [onFix, onErr];
+  f.watch = navigator.geolocation.watchPosition(onFix, onErr, f.watchOpts);
+  f.fixWall = Date.now(); f.watchAt = Date.now();
+  startWatchdog();
 }
+// Controllo dell'età della posizione, indipendente dal GPS: ogni secondo
+function startWatchdog() {
+  clearInterval(state.fly.dog);
+  state.fly.dog = setInterval(watchdogTick, 1000);
+}
+function fixAgeS() {
+  const f = state.fly;
+  if (!f.active || f.source === 'sim') return 0;
+  return Math.max(0, (Date.now() - (f.fixWall || 0)) / 1000);
+}
+const FIX_OLD_S = 3, FIX_LOST_S = 10;
+function watchdogTick() {
+  const f = state.fly;
+  if (!f.active || f.source === 'sim') { renderIntegrity(); return; }
+  const age = fixAgeS(), lost = age > FIX_LOST_S;
+  // GPS esterno muto: si passa al GPS del tablet e si torna appena l'esterno riprende (onExtLine)
+  if (f.source === 'ext' && age > 5 && 'geolocation' in navigator && !f.fallbackWatch) {
+    f.fallbackWatch = navigator.geolocation.watchPosition(p => {
+      if (f.source !== 'ext' || Date.now() - (state.ext.seen.gps || 0) < 3000) return;
+      const c = p.coords; f.pos = { lon: c.longitude, lat: c.latitude }; f.fixWall = Date.now(); f.fixT = p.timestamp; f.extFallback = true;
+      if (Number.isFinite(c.speed)) f.gsKt = c.speed / KT; if (Number.isFinite(c.heading)) f.trk = c.heading;
+      if (Number.isFinite(c.altitude)) { const N = geoidN(state.geoid, c.longitude, c.latitude); f.gpsAltFt = (c.altitude - (Number.isFinite(N) ? N : 0)) * FT; f.gpsAltAcc = Number.isFinite(c.altitudeAccuracy) ? c.altitudeAccuracy * FT : NaN; }
+      applyAltitude(); flyTick();
+    }, () => {}, { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 });
+  }
+  if (f.source === 'gps' && age > 30 && Date.now() - (f.watchAt || 0) > 30000 && f.watchCb) {
+    navigator.geolocation.clearWatch(f.watch);
+    f.watch = navigator.geolocation.watchPosition(...f.watchCb, f.watchOpts); f.watchAt = Date.now();
+  }
+  if (lost !== !!f.lost) {
+    f.lost = lost;
+    if (lost) { f.events = []; f.inside = []; say('Attenzione. Posizione GPS persa.', 'crit'); }
+    else say('Posizione GPS di nuovo disponibile.', 'info');
+    if (state.view === 'fly') renderFlyWarnings();
+  }
+  $('instruments').classList.toggle('stale', age > FIX_OLD_S);
+  if (lost && state.view === 'fly' && Math.round(age) % 5 === 0) renderFlyWarnings();
+  if (lost) { const big = $('alertbig'); big.style.display = 'block'; big.textContent = `Posizione non aggiornata da ${Math.round(age)} s: avvisi sospesi`; }
+  renderIntegrity();
+}
+// Batteria del tablet (dove il sistema la fornisce)
+const battery = { level: NaN, charging: false };
+try { navigator.getBattery?.().then(b => { const up = () => { battery.level = b.level; battery.charging = b.charging; }; up(); b.addEventListener('levelchange', up); b.addEventListener('chargingchange', up); }); } catch { /* non disponibile */ }
+// Semaforo di integrità: posizione, quota, dati, tablet. Ogni voce verde, gialla o rossa; tocco = dettaglio.
+function integrityItems() {
+  const f = state.fly, e = state.ext, out = [];
+  const age = fixAgeS();
+  if (!f.active) out.push({ k: 'Posizione', lvl: 'off', short: 'spenta', text: 'GPS spento: «Avvia GPS» o «Simula».' });
+  else if (f.source === 'sim') out.push({ k: 'Posizione', lvl: 'off', short: 'simulata', text: 'Simulazione: nessun dato reale.' });
+  else {
+    const src = f.source === 'ext' ? (f.extFallback && Date.now() - (e.seen.gps || 0) > 3000 ? 'GPS del tablet (esterno muto)' : 'GPS esterno') : 'GPS del tablet';
+    const acc = Number.isFinite(f.gpsAcc) ? ` ±${Math.round(f.gpsAcc)} m` : '';
+    const lvl = age > FIX_LOST_S ? 'crit' : age > FIX_OLD_S || f.gpsAcc > 50 ? 'warn' : 'ok';
+    out.push({ k: 'Posizione', lvl, short: age > FIX_LOST_S ? `persa ${Math.round(age)} s` : age > FIX_OLD_S ? `${Math.round(age)} s fa` : `ok${acc}`,
+      text: `${src}: ultimo dato ${age < 1 ? 'adesso' : `${Math.round(age)} s fa`}${acc ? `, precisione${acc}` : ''}.${f.gpsErr === 2 ? ' Il GPS dice: posizione non disponibile.' : f.gpsErr === 3 ? ' Il GPS non risponde in tempo.' : ''}${age > FIX_LOST_S ? ' Avvisi previsti sospesi finché la posizione non torna.' : ''}` });
+  }
+  if (!f.active || f.source === 'sim') out.push({ k: 'Quota', lvl: 'off', short: '—', text: 'Nessuna quota misurata.' });
+  else if (age > FIX_LOST_S) out.push({ k: 'Quota', lvl: 'crit', short: 'ferma', text: 'Con la posizione persa anche la quota GPS è ferma: usa l’altimetro di bordo.' });
+  else {
+    const baro = /barometrica/i.test(f.altLabel || ''), acc = f.gpsAltAcc;
+    const lvl = baro ? 'ok' : f.gpsAltOk === false ? 'warn' : !Number.isFinite(acc) ? 'warn' : acc > 250 ? 'crit' : acc > 100 ? 'warn' : 'ok';
+    out.push({ k: 'Quota', lvl, short: baro ? 'barometrica' : Number.isFinite(acc) ? `GPS ±${Math.round(acc / 10) * 10} ft` : 'GPS',
+      text: baro ? 'Quota barometrica dallo strumento esterno, corretta col QNH impostato.' : `Quota GPS sul livello del mare (corretta per il geoide${f.gpsAltOk === false ? ': correzione non disponibile qui' : ''}). ${Number.isFinite(acc) ? `Precisione dichiarata ±${Math.round(acc)} ft.` : 'Precisione non dichiarata dal dispositivo.'} L'altimetro di bordo resta il riferimento.` });
+  }
+  const today = localDate(), fw = freshnessWarnings({ meta: state.packInfo?.meta, flightDate: today, today, demo: state.airDemo || terrain.demo }).filter(w => !/NOTAM/.test(w.title));
+  const miss = f.pos ? terrain.missing(boundsAround([f.pos], 10)).length : 0;
+  const dl = fw.some(w => w.lvl === 'crit') ? 'crit' : fw.some(w => w.lvl === 'warn') || miss ? 'warn' : 'ok';
+  out.push({ k: 'Dati', lvl: dl, short: dl === 'ok' ? 'ok' : dl === 'crit' ? 'da aggiornare' : 'da controllare',
+    text: `${fw.map(w => w.title).join(' · ') || 'Dati del pacchetto validi.'}${miss ? ` · Terreno dettagliato non ancora caricato qui (${miss} tessere): i controlli usano la griglia d'insieme, più prudente.` : ''} · NOTAM e attivazioni delle zone non caricati: controllali sul briefing ufficiale.` });
+  const skew = state.fly.clockSkewS, bl = battery.level;
+  const tl = Math.abs(skew) > 120 ? 'warn' : !Number.isFinite(bl) ? 'off' : (!battery.charging && bl < 0.15) ? 'crit' : (!battery.charging && bl < 0.3) ? 'warn' : 'ok';
+  out.push({ k: 'Tablet', lvl: tl, short: Number.isFinite(bl) ? `${Math.round(bl * 100)} %${battery.charging ? ' ⚡' : ''}` : '—',
+    text: `${Number.isFinite(bl) ? `Batteria ${Math.round(bl * 100)} %${battery.charging ? ', in carica' : ''}.` : 'Livello della batteria non disponibile.'}${Math.abs(skew) > 120 ? ` L'orologio del tablet è sbagliato di ${Math.round(Math.abs(skew) / 60)} min rispetto al GPS: correggilo (sole, METAR e ciclo AIRAC dipendono dall'ora).` : ''}` });
+  return out;
+}
+// «Pronto al volo»: controlli prima del decollo, tutti automatici, nella stessa finestra del semaforo (a terra)
+function readyItems() {
+  const R = state.route, pr = state.planRes, out = [], add = (lvl, k, text) => out.push({ lvl, k, text });
+  if (R.length < 2) { add('warn', 'Rotta', 'Nessuna rotta pianificata: gli avvisi useranno solo terreno e spazi attorno all’aereo.'); return out; }
+  const miss = terrain.missing(boundsAround(R, 10)).length;
+  add(miss ? 'warn' : 'ok', 'Terreno', miss ? `${miss} tessere fini lungo la rotta non ancora caricate: apri la rotta con la rete o attendi qualche secondo.` : 'Terreno dettagliato di tutta la rotta presente sul tablet (funziona senza rete).');
+  const crit = (state.analysis?.warnings || []).filter(w => w.lvl === 'crit').length;
+  add(crit ? 'crit' : 'ok', 'Rotta', crit ? `${crit} problemi da risolvere negli avvisi della rotta.` : 'Nessun problema grave negli avvisi della rotta.');
+  if (pr) {
+    const fuelW = pr.checks.filter(c => /carburante/i.test(c.title)), wbW = pr.checks.filter(c => /peso|baricentro|bagagli/i.test(c.title));
+    add(!pr.fuelEntered ? 'warn' : fuelW.some(c => c.lvl === 'crit') ? 'crit' : 'ok', 'Carburante', !pr.fuelEntered ? 'Carburante a bordo non indicato (Piano di volo → Carburante a bordo).' : fuelW.length ? fuelW.map(c => c.title).join(' · ') : 'Carburante a bordo sufficiente per tratta, alternato e riserva.');
+    const loaded = Number(pr.st?.load?.pilotKg) > 0;
+    add(wbW.some(c => c.lvl === 'crit') ? 'crit' : wbW.length || !loaded ? 'warn' : 'ok', 'Peso', wbW.length ? wbW.map(c => c.title).join(' · ') : !loaded ? 'Peso del pilota non inserito: peso e centraggio non verificati (Piano di volo).' : 'Peso e centraggio entro i limiti.');
+  }
+  const wxAge = state.wx?.fetched ? (Date.now() - state.wx.fetched) / 60000 : Infinity;
+  add(wxAge < 90 ? 'ok' : 'warn', 'Meteo', wxAge < 90 ? `METAR e TAF scaricati ${Math.round(wxAge)} min fa.` : 'Meteo non scaricato o più vecchio di 90 minuti: aprilo con la rete (scheda Meteo).');
+  add('warn', 'NOTAM', 'Non caricati nel programma: controllali sul briefing ufficiale ENAV prima di partire.');
+  add(state.voice ? 'ok' : 'warn', 'Voce', state.voice ? 'Avvisi sonori accesi (prova del suono quando si accendono).' : 'Avvisi sonori spenti: tasto «Voce».');
+  return out;
+}
+function renderIntegrity() {
+  const el = $('integ'); if (!el) return;
+  const it = integrityItems();
+  let ready = '';
+  if (state.fly.ph.phase !== 'volo' && state.view === 'fly') { const rd = readyItems(), l = rd.some(x => x.lvl === 'crit') ? 'crit' : rd.some(x => x.lvl === 'warn' && x.k !== 'NOTAM') ? 'warn' : 'ok'; ready = `<span><i class="l-${l}"></i>Pronto al volo?</span>`; }
+  el.innerHTML = it.map(x => `<span><i class="l-${x.lvl}"></i>${esc(x.k)} ${esc(x.short)}</span>`).join('') + ready;
+  el.classList.toggle('lost', it[0].lvl === 'crit');
+  const d = $('integD');
+  const dot = l => `<i style="width:10px;height:10px;border-radius:50%;display:inline-block;margin-top:4px;background:${{ ok: '#2fbf71', warn: '#f5b301', crit: '#ff4d5e', off: '#8796a3' }[l]}"></i>`;
+  if (d.style.display === 'block' && state.fly.ph.phase !== 'volo') {
+    const rd = readyItems(), bad = rd.filter(x => x.lvl === 'crit').length, wn = rd.filter(x => x.lvl === 'warn').length;
+    d.innerHTML = it.map(x => `<div>${dot(x.lvl)}<b>${esc(x.k)}</b><span>${esc(x.text)}</span></div>`).join('')
+      + `<p style="margin:10px 0 2px;font-weight:800">Pronto al volo? ${bad ? `<span style="color:var(--crit)">${bad} da risolvere</span>` : wn ? `${wn} da controllare` : '<span style="color:var(--ok)">tutto a posto</span>'}</p>`
+      + rd.map(x => `<div>${dot(x.lvl)}<b>${esc(x.k)}</b><span>${esc(x.text)}</span></div>`).join('');
+    return;
+  }
+  if (d.style.display === 'block') d.innerHTML = it.map(x => `<div><i style="width:10px;height:10px;border-radius:50%;display:inline-block;margin-top:4px;background:${{ ok: '#2fbf71', warn: '#f5b301', crit: '#ff4d5e', off: '#8796a3' }[x.lvl]}"></i><b>${esc(x.k)}</b><span>${esc(x.text)}</span></div>`).join('');
+}
+$('integ').addEventListener('click', () => { const d = $('integD'); d.style.display = d.style.display === 'block' ? 'none' : 'block'; renderIntegrity(); });
+document.addEventListener('pointerdown', e => { const d = $('integD'); if (d.style.display === 'block' && !d.contains(e.target) && !e.target.closest('#integ')) d.style.display = 'none'; });
 function startSim() {
   const f = state.fly;
   if (f.active && f.source !== 'ext') { stopFly(); return; }
@@ -1677,9 +2010,11 @@ function onExtLine(line) {
   if (m.type === 'PFLAA' && f.pos) { ingestFlarm(state.traffic, m, { ...f.pos, altFt: f.altFt, trk: f.trk }, now); e.seen.traffic = now; }
   if (m.type === 'PFLAU') { e.flarm = m; e.seen.flarm = now; if (m.alarm >= 1 && f.active) updateTraffic(); }
   // posizione da GPS esterno se non c'è il GPS interno attivo; aggiornamento al massimo una volta al secondo
-  if (e.gps && (f.source === 'ext' || !f.active) && (!e.lastTick || now - e.lastTick > 900)) {
-    if (!f.active) { f.active = true; f.source = 'ext'; f.spoken.clear(); f.sessionT = Date.now(); }
-    f.pos = { lon: e.gps.lon, lat: e.gps.lat };
+  // solo con una frase valida recente: una RMC «non valida» non deve ripresentare la vecchia posizione come nuova
+  if (e.gps && now - (e.seen.gps || 0) < 2000 && (f.source === 'ext' || !f.active) && (!e.lastTick || now - e.lastTick > 900)) {
+    if (!f.active) { f.active = true; f.source = 'ext'; f.spoken.clear(); f.sessionT = Date.now(); startWatchdog(); }
+    if (f.fallbackWatch != null) { navigator.geolocation?.clearWatch(f.fallbackWatch); f.fallbackWatch = null; f.extFallback = false; }
+    f.pos = { lon: e.gps.lon, lat: e.gps.lat }; f.fixWall = now; f.gpsAcc = NaN;
     if (Number.isFinite(e.gps.gsKt)) f.gsKt = e.gps.gsKt;
     if (Number.isFinite(e.gps.trk)) f.trk = e.gps.trk;
     f.gpsAltFt = e.gps.altFt; f.gpsAltOk = true; f.gpsAltAcc = NaN;
@@ -1797,7 +2132,7 @@ function makeTownLabel(text, rank) {
     return {};
   });
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t.tex, depthTest: false, transparent: true }));
-  sp.userData.px = [t.w / t.h * (size * 0.7), size * 0.7]; sp.renderOrder = 7;
+  sp.userData.px = [t.w / t.h * (size * 0.7), size * 0.7]; sp.userData.isLabel = true; sp.renderOrder = 7;
   return sp;
 }
 function buildBasemap() {
@@ -2143,7 +2478,7 @@ function bindWx() {
   $('wxShowTmp')?.addEventListener('input', e => { state.wxShow = e.target.checked; buildWeather(); buildForecast(); buildRadar(); renderLegend(visibleAirspaces()); });
   $('fcTime')?.addEventListener('input', e => { state.fcTi = Number(e.target.value); buildForecast(); refresh(); });
   document.querySelectorAll('[data-fcl]').forEach(c => c.addEventListener('input', () => { state.fcLayers[c.dataset.fcl] = c.checked; buildForecast(); }));
-  $('useQnh')?.addEventListener('click', () => { const q = nearestQnh(state.wx.stations, state.route[0] || state.fly.pos || state.wx.stations[0]); if (q) { ui.qnh.value = q.qnh; ui.qnh.dispatchEvent(new Event('input')); } });
+  $('useQnh')?.addEventListener('click', () => { const q = nearestQnh(state.wx.stations, state.route[0] || state.fly.pos || state.wx.stations[0]); if (q) { ui.qnh.value = q.qnh; ui.qnh.dispatchEvent(new Event('change')); } });
 }
 
 function showFlyMsg(msg) { $('warnings').innerHTML = `<div class="warn warn"><b>Attenzione</b><span class="wt">${esc(msg)}</span></div>`; openRight(); }
@@ -2225,7 +2560,7 @@ function refresh() {
   if (state.wx) state.analysis.warnings.push(...weatherWarnings({ route: state.route, stations: state.wx.stations, sigmets: state.wx.sigmets, cruiseFt: cruise() }));
   if (state.wx && state.minima.on) state.analysis.warnings.push(...personalMinimaWarnings());
   // età dei dati (ciclo AIRAC del giorno del volo) e NOTAM non caricati; spazi attraversati non modificati da anni
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDate();
   state.analysis.warnings.push(...freshnessWarnings({ meta: state.packInfo?.meta, flightDate: ui.date.value, today, demo: state.airDemo || terrain.demo }));
   state.analysis.warnings.push(...staleAirspaceInfo([...new Set(state.analysis.warnings.map(w => w.airspace).filter(Boolean))], today));
   updateHighlight();
@@ -2241,7 +2576,7 @@ function refresh() {
     // nelle altre viste, solo i controlli sul carburante (gli altri del piano stanno nella sua scheda)
     state.analysis.warnings.unshift(...state.planRes.checks.filter(c => /carburante/i.test(c.title)).map(c => ({ ...c, kind: 'piano' })));
   }
-  renderSummary(state.analysis); renderWarnings(state.analysis); renderWeather();
+  renderSummary(state.analysis); renderWarnings(state.analysis); renderWeather(); renderIntegrity(); if (state.showAdv) renderAdvisor();
   drawProfileNow();
   if (state.view === 'radio') renderRadio();
   if (!(state.view === 'fly' && state.fly.pos)) setHazard(state.terrPlan && state.view !== 'fly', cruise());
@@ -2491,6 +2826,9 @@ async function handleFiles(files) {
 
 // ---------------------------------------------------------------- interazione
 function setView(v) {
+  setTimeout(renderIntegrity, 0);
+  hideWhats(); clearTimeout(state.whatsT);   // la colonna d'aria di una vista non resta aperta sull'altra
+  if (v !== 'plan' && state.showAdv) { state.showAdv = false; renderAdvisor(); }
   state.view = v;
   if (v === 'fly') openRight();
   document.body.classList.remove('view-plan', 'view-fly', 'view-radio', 'view-navlog');
@@ -2669,11 +3007,24 @@ function fixRouteFlags() {
   const R = state.route; if (!R.length) return;
   const air = R.some(p => p.airborne); R.forEach(p => delete p.airborne); if (air) R[0].airborne = true;
 }
-[ui.cruise, ui.pilot, ui.date, ui.dayOverride].forEach(el => el.addEventListener('input', () => { schedule(...(state.airCeil === 'auto' ? ['air'] : []), 'feat', 'route', 'fc', 'refresh'); savePrefs(); }));
+// Campi numerici (crociera, QNH): si ricalcola alla conferma (Invio, uscita dal campo) o dopo una pausa di 0,8 s, mai a
+// ogni tasto. Scrivendo «5500» il programma vedeva «5», «55», «550»: ricalcolava tutto quattro volte e alzava i punti
+// alle quote intermedie (collaudo 0.21.0, A6 e B3).
+const typed = (el, fn) => {
+  let t = 0, last = el.value;
+  const go = () => { clearTimeout(t); if (el.value === last) return; last = el.value; fn(); };
+  el.addEventListener('input', () => { clearTimeout(t); t = setTimeout(go, 800); });
+  el.addEventListener('change', go);
+  el.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+};
+const onFlightParams = () => { schedule(...(state.airCeil === 'auto' ? ['air'] : []), 'feat', 'route', 'fc', 'refresh'); savePrefs(); };
+typed(ui.cruise, onFlightParams);
+[ui.pilot, ui.date, ui.dayOverride].forEach(el => el.addEventListener('input', onFlightParams));
 [ui.callsign, ui.acType].forEach(el => el.addEventListener('input', () => { savePrefs(); if (state.view === 'radio') renderRadio(); }));
 $('glideMargin').value = String(state.glideMargin);
 $('glideMargin').addEventListener('change', e => { state.glideMargin = Number(e.target.value) || 0; savePrefs(); buildGlide(); delete $('nearest').dataset.key; delete $('emerg').dataset.key; renderNearest(); renderEmergency(); });
-[ui.qnh, ui.showFir].forEach(el => el.addEventListener('input', () => schedule('limits')));
+typed(ui.qnh, () => schedule('limits'));
+ui.showFir.addEventListener('input', () => schedule('limits'));
 ui.ceiling.innerHTML = ceilOptions();
 ui.ceiling.addEventListener('change', () => setAirCeil(ui.ceiling.value));
 ui.showLabels.addEventListener('input', () => { state.labelsTouched = true; groups.labels.children.forEach(l => { l.visible = l.userData.hot || ui.showLabels.checked; }); invalidate(); });
@@ -2685,7 +3036,12 @@ $('voiceBtn').addEventListener('click', () => {
   state.voice = !state.voice;
   $('voiceBtn').textContent = 'Voce'; $('voiceBtn').classList.toggle('on', !!state.voice); $('voiceBtn').title = state.voice ? 'Voce accesa: tocca per spegnerla' : 'Voce spenta: tocca per accenderla';
   $('voiceBtn').setAttribute('aria-pressed', String(state.voice)); $('voiceBtn').classList.toggle('on', state.voice);
-  if (state.voice && 'speechSynthesis' in window) { const u = new SpeechSynthesisUtterance('Avvisi vocali attivi.'); u.lang = 'it-IT'; window.speechSynthesis.speak(u); }
+  if (state.voice) {
+    const nat = nativeVoice();
+    if (nat) nat.stato().then(r => { if (r?.stato && r.stato !== 'pronta' && r.stato !== 'avvio') showFlyMsg(`Voce: ${r.stato}. Su Android: Impostazioni → Sintesi vocale → installa la voce italiana.`); }).catch(() => {});
+    else if (!('speechSynthesis' in window)) showFlyMsg('Questo dispositivo non offre la sintesi vocale: restano i suoni e gli avvisi sullo schermo.');
+    say('Avvisi sonori attivi.', 'info'); tone('warn');
+  }
 });
 const drop = $('drop'), fileIn = $('file');
 drop.addEventListener('click', () => fileIn.click());
@@ -2875,8 +3231,9 @@ renderer.domElement.addEventListener('pointerup', e => {
     if (ll) { const sn = snapPoint(ll); state.route.push(sn || { ...ll, name: newPName() }); state.routeDemo = false; buildRoute(); refresh(); }
     return;
   }
+  const before = state.selected;
   pickAirspace(e);
-  buildAirspaces(); renderInfo();
+  if (state.selected !== before) { buildAirspaces(); renderInfo(); }
 });
 // spazi sovrapposti: prima il più basso; un altro tocco nello stesso punto passa al successivo verso l'alto
 function pickAirspace(e) {
@@ -2911,50 +3268,83 @@ function bestInsert(p) {
   return best.i;
 }
 function hideWhats() { const w = $('whats'); if (w) w.style.display = 'none'; }
+// Colonna d'aria disegnata in scala: quota che cresce verso l'alto (0 in basso), fasce degli spazi aerei numerate dall'alto
+// in basso, e accanto a ogni fascia nome e limiti alla sua quota. L'elenco sotto il disegno segue lo stesso ordine.
+// Prima il grafico saliva e l'elenco scendeva (segnalazione di Ale, collaudo 0.21.0, C10). Codice di fringuello79 di Avezzano.
+const fmtFt = ft => Math.round(ft).toLocaleString('it-IT');
 function drawColumn(cv, { terr, lim, air, plan }) {
-  const dpr = Math.min(2, window.devicePixelRatio || 1), W = cv.clientWidth || 120, H = cv.clientHeight || 240;
+  const dpr = Math.min(2, window.devicePixelRatio || 1), W = cv.clientWidth || 360, H = cv.clientHeight || 280;
   cv.width = W * dpr; cv.height = H * dpr;
   const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
-  const top = Math.max(6000, Math.ceil(Math.max(terr + 3000, plan || 0, ...air.map(h => Math.min(h.hi, 19500))) / 1000) * 1000);
-  const L = 34, R = 4, T = 6, B = 6, Y = f => T + (H - T - B) * (1 - Math.max(0, Math.min(top, f)) / top);
-  ctx.font = `10px ${FONT}`; ctx.fillStyle = css('--muted'); ctx.strokeStyle = css('--line'); ctx.lineWidth = 1;
-  const step = top > 12000 ? 4000 : top > 6000 ? 2000 : 1000;
-  for (let f = 0; f <= top; f += step) { ctx.beginPath(); ctx.moveTo(L, Y(f) + 0.5); ctx.lineTo(W - R, Y(f) + 0.5); ctx.stroke(); ctx.fillText(f >= 1000 ? `${f / 1000}k` : `${f}`, 4, Y(f) + 3); }
-  // spazi aerei: fasce affiancate quando si sovrappongono in quota
+  const top = Math.max(6000, Math.ceil(Math.max(terr + 3000, plan || 0, Number.isFinite(lim) ? lim + 500 : 0, ...air.map(h => Math.min(h.hi, 19500) + 300)) / 1000) * 1000);
+  const L = 48, T = 10, B = 10, bandW = Math.min(110, W * 0.3), labX = L + bandW + 12;
+  const Y = f => T + (H - T - B) * (1 - Math.max(0, Math.min(top, f)) / top);
+  ctx.font = `11px ${FONT}`; ctx.strokeStyle = css('--line'); ctx.lineWidth = 1; ctx.textBaseline = 'middle';
+  const step = top > 14000 ? 4000 : top > 7000 ? 2000 : 1000;
+  for (let f = 0; f <= top; f += step) {
+    ctx.beginPath(); ctx.moveTo(L, Y(f) + 0.5); ctx.lineTo(L + bandW, Y(f) + 0.5); ctx.stroke();
+    ctx.fillStyle = css('--muted'); ctx.textAlign = 'right'; ctx.fillText(f ? fmtFt(f) : '0 ft', L - 5, Math.min(Y(f), H - B - 4));
+  }
+  // fasce affiancate quando si sovrappongono in quota
   const lanes = [];
   for (const h of air) { let k = lanes.findIndex(l => l.every(o => o.hi <= h.lo || o.lo >= h.hi)); if (k < 0) { lanes.push([]); k = lanes.length - 1; } lanes[k].push(h); h.lane = k; }
-  const lw = (W - L - R) / Math.max(1, lanes.length);
+  const lw = bandW / Math.max(1, lanes.length);
+  const labels = [];
   for (const h of air) {
-    const c = CAT_COLOR[category(h.a)], x = L + h.lane * lw + 1, y0 = Y(Math.min(h.hi, top)), y1 = Y(Math.max(h.lo, terr));
-    ctx.fillStyle = c + '40'; ctx.fillRect(x, y0, lw - 2, y1 - y0); ctx.strokeStyle = c; ctx.lineWidth = 1.5; ctx.strokeRect(x + 0.5, y0 + 0.5, lw - 3, y1 - y0 - 1);
+    const c = CAT_COLOR[category(h.a)], x = L + h.lane * lw + 1, lo = Math.max(h.lo, terr), hi = Math.min(h.hi, top), y0 = Y(hi), y1 = Y(lo);
+    ctx.fillStyle = c + '44'; ctx.fillRect(x, y0, lw - 2, y1 - y0);
+    ctx.strokeStyle = c; ctx.lineWidth = 1.5; ctx.setLineDash(h.a.doubt ? [4, 3] : []); ctx.strokeRect(x + 0.5, y0 + 0.5, lw - 3, Math.max(1, y1 - y0 - 1)); ctx.setLineDash([]);
+    // numero nella fascia
+    const ny = Math.max(y0 + 9, Math.min(y1 - 9, (y0 + y1) / 2));
+    ctx.fillStyle = c; ctx.beginPath(); ctx.arc(x + lw / 2 - 1, ny, 9, 0, 2 * Math.PI); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = `700 11px ${FONT}`; ctx.textAlign = 'center'; ctx.fillText(String(h.n), x + lw / 2 - 1, ny + 0.5);
+    labels.push({ h, y: (y0 + y1) / 2, ax: x + lw - 1, ay: ny, c });
   }
-  ctx.fillStyle = css('--terrain-fill'); ctx.fillRect(L, Y(terr), W - L - R, H - B - Y(terr));
-  if (Number.isFinite(lim)) { ctx.strokeStyle = '#d98a00'; ctx.lineWidth = 2; ctx.setLineDash([5, 3]); ctx.beginPath(); ctx.moveTo(L, Y(lim)); ctx.lineTo(W - R, Y(lim)); ctx.stroke(); ctx.setLineDash([]); }
-  if (Number.isFinite(plan)) { ctx.strokeStyle = css('--route'); ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(L, Y(plan)); ctx.lineTo(W - R, Y(plan)); ctx.stroke(); }
+  // etichette alla quota della fascia, distanziate per non sovrapporsi
+  labels.sort((p, q) => p.y - q.y);
+  const gap = 28;
+  for (let i = 0; i < labels.length; i++) labels[i].ly = Math.max(T + 12, i ? Math.max(labels[i].y, labels[i - 1].ly + gap) : labels[i].y);
+  for (let i = labels.length - 1; i >= 0; i--) labels[i].ly = Math.min(labels[i].ly, H - B - 14 - (labels.length - 1 - i) * gap);
+  const maxW = W - labX - 4;
+  const fit = t => { let x = t; while (x.length > 3 && ctx.measureText(x).width > maxW) x = x.slice(0, -2); return x === t ? t : `${x}…`; };
+  for (const l of labels) {
+    ctx.strokeStyle = l.c; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(l.ax, l.ay); ctx.lineTo(labX - 4, l.ly); ctx.stroke();
+    ctx.textAlign = 'left'; ctx.fillStyle = css('--ink'); ctx.font = `700 11.5px ${FONT}`; ctx.fillText(fit(`${l.h.n} ${l.h.a.name}`), labX, l.ly - 7);
+    ctx.fillStyle = css('--muted'); ctx.font = `11px ${FONT}`;
+    ctx.fillText(fit(`${limitText(l.h.a.lower)} – ${limitText(l.h.a.upper)}${l.h.a.doubt ? ' (incerto)' : ''}`), labX, l.ly + 7);
+  }
+  // terreno, limite VDS, quota del tratto
+  ctx.fillStyle = css('--terrain-fill'); ctx.fillRect(L, Y(terr), bandW, H - B - Y(terr));
+  ctx.fillStyle = css('--muted'); ctx.font = `11px ${FONT}`; ctx.textAlign = 'left';
+  if (Number.isFinite(lim)) { ctx.strokeStyle = '#d98a00'; ctx.lineWidth = 2; ctx.setLineDash([5, 3]); ctx.beginPath(); ctx.moveTo(L, Y(lim)); ctx.lineTo(L + bandW, Y(lim)); ctx.stroke(); ctx.setLineDash([]); }
+  if (Number.isFinite(plan)) { ctx.strokeStyle = css('--route'); ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(L, Y(plan)); ctx.lineTo(L + bandW, Y(plan)); ctx.stroke(); }
 }
 function showWhats(cx, cy) {
   const ll = groundAt({ clientX: cx, clientY: cy });
   if (!ll) return;
   const terr = terrain.elevFt(ll.lon, ll.lat), pilot = ui.pilot.value, dd = day();
   const lim = pilot === 'basico' ? terrain.maxWithinFt(ll.lon, ll.lat) + dd.vdsAgl : null;
-  const air = airspacesAt(ll.lon, ll.lat, terr, checkAirspaces(), qnh()).filter(h => h.hi > (terr || 0)).sort((a, b) => a.lo - b.lo || a.hi - b.hi);
+  // dall'alto in basso, come il disegno: prima lo spazio più alto
+  const air = airspacesAt(ll.lon, ll.lat, terr, checkAirspaces(), qnh()).filter(h => h.hi > (terr || 0)).sort((a, b) => b.hi - a.hi || b.lo - a.lo);
+  air.forEach((h, i) => { h.n = i + 1; });
   const fields = state.feats ? state.feats.airports.filter(a => aerodromeKind(a) !== 'chiuso').map(a => ({ a, d: distM(a, ll) })).filter(x => x.d < 15000).sort((x, y) => x.d - y.d).slice(0, 2) : [];
   let routeTxt = '', plan = null;
   if (state.route.length > 1) {
     let best = null;
     for (let i = 0; i < state.route.length - 1; i++) { const d = segDistM(state.route[i], state.route[i + 1], ll); if (!best || d < best.d) best = { d, i }; }
-    if (best) { routeTxt = `${(best.d / NM).toFixed(1)} NM, tratto ${best.i + 1}→${best.i + 2}`; if (best.d < 5 * NM) plan = legAltFt(state.route, best.i, cruise()); }
+    if (best) { routeTxt = `${(best.d / NM).toFixed(1).replace('.', ',')} NM, tratto ${best.i + 1}→${best.i + 2}`; if (best.d < 5 * NM) plan = legAltFt(state.route, best.i, cruise()); }
   }
   const w = $('whats');
-  w.innerHTML = `<div class="wh-h"><span><b>Colonna d'aria</b> <small>${ll.lat.toFixed(4)} N ${ll.lon.toFixed(4)} E</small></span><button type="button" class="xbtn" data-wh="close" aria-label="Chiudi">${ic('close')}</button></div>
-    <div class="wh-b"><canvas aria-label="Sezione verticale del punto"></canvas><div>
+  const flyNow2 = state.view === 'fly';
+  w.innerHTML = `<div class="wh-h"><span><b>Colonna d'aria</b> <small>${ll.lat.toFixed(4)} N ${ll.lon.toFixed(4)} E</small></span><span>${flyNow2 ? `<button type="button" class="btn sm" data-wh="pin" aria-pressed="false" title="In volo la finestra si chiude da sola dopo 30 s: tocca per tenerla aperta">Tieni aperta</button>` : ''}<button type="button" class="xbtn" data-wh="close" aria-label="Chiudi">${ic('close')}</button></span></div>
+    <div class="wh-b"><canvas aria-label="Sezione verticale del punto, in scala" style="height:${Math.max(240, Math.min(380, 150 + air.length * 34))}px"></canvas><div>
       <div class="wh-row"><span>Terreno</span><b>${Number.isFinite(terr) ? Math.round(terr) + ' ft' : '—'}</b></div>
       ${lim !== null && Number.isFinite(lim) ? `<div class="wh-row"><span>Limite VDS oggi</span><b>${Math.round(lim)} ft</b></div>` : ''}
       ${routeTxt ? `<div class="wh-row"><span>Dalla rotta</span><b>${routeTxt}</b></div>` : ''}
       ${plan ? `<div class="wh-row"><span>Quota del tratto</span><b>${plan} ft</b></div>` : ''}
-      <div class="wh-s">Spazi aerei, dal basso${air.length ? '' : ': nessuno nei dati caricati'}</div>
-      ${air.map(h => { const r = entryRule(h.a, pilot), c = contactInfo(h.a); return `<div class="wh-air" style="border-color:${CAT_COLOR[category(h.a)]}"><b>${esc(h.a.name)}</b><span>${Math.round(Math.max(h.lo, terr || 0))}–${Math.round(h.hi)} ft · ${esc(limitText(h.a.lower))}–${esc(limitText(h.a.upper))}</span><span>${esc(NEED_IT[r.need] || r.need || '')}${c.freq ? ` · ${esc(c.unit)} ${esc(c.freq)}` : ''}</span></div>`; }).join('')}
-      ${fields.length ? `<div class="wh-s">Campi vicini</div>${fields.map(({ a, d }) => { const f = a.freqs.find(x => x.mhz); return `<div class="wh-row"><span>${esc(a.icao || titleCaseIt(a.name))}${f ? ' · ' + esc(f.mhz) : ''}</span><b>${(d / NM).toFixed(1)} NM</b></div>`; }).join('')}` : ''}
+      <div class="wh-s">Spazi aerei, dall'alto in basso${air.length ? '' : ': nessuno nei dati caricati'}</div>
+      ${air.map(h => { const r = entryRule(h.a, pilot), c = contactInfo(h.a), col = CAT_COLOR[category(h.a)]; return `<div class="wh-air" style="border-color:${col}"><b><i class="whn" style="background:${col}">${h.n}</i>${esc(h.a.name)}</b><span>${esc(limitText(h.a.lower))} – ${esc(limitText(h.a.upper))}${h.a.doubt ? ' · limite incerto' : ''} · qui ${fmtFt(Math.max(h.lo, terr || 0))}–${h.hi >= 99999 ? 'illimitato' : fmtFt(Math.round(h.hi / 10) * 10) + ' ft'}</span><span>${esc(NEED_IT[r.need] || r.need || '')}${c.freq ? ` · ${esc(c.unit)} ${esc(c.freq)}` : ''}</span></div>`; }).join('')}
+      ${fields.length ? `<div class="wh-s">Campi vicini</div>${fields.map(({ a, d }) => { const f = a.freqs.find(x => x.mhz); return `<div class="wh-row"><span>${esc(a.icao || titleCaseIt(a.name))}${f ? ' · ' + esc(f.mhz) : ''}</span><b>${(d / NM).toFixed(1).replace('.', ',')} NM</b></div>`; }).join('')}` : ''}
     </div></div>
     <div class="wh-act">
       ${state.view === 'plan' ? `<button class="btn sm primary" data-wh="add">${ic('plus')}In fondo alla rotta</button>${state.route.length ? '<button class="btn sm" data-wh="start">Come partenza</button>' : ''}${state.route.length > 1 ? '<button class="btn sm" data-wh="ins">Inserisci nella rotta</button>' : ''}` : ''}
@@ -2969,11 +3359,17 @@ function showWhats(cx, cy) {
   const x = Math.min(vr.width - ins.r - ww - 8, Math.max(ins.l + 8, cx - vr.left + 14)), y = Math.min(vr.height - ins.b - wh - 8, Math.max(8, cy - vr.top - 20));
   w.style.left = `${x}px`; w.style.top = `${Math.max(8, y)}px`;
   // gli spazi aerei del punto si evidenziano sulla carta (il primo dal basso è anche il «selezionato»)
-  state.selected = air[0]?.a || null; buildAirspaces(); renderInfo();
+  // il più basso (ultimo dell'elenco) è anche il «selezionato» sulla carta, come prima
+  state.selected = air.at(-1)?.a || null; buildAirspaces(); renderInfo();
+  // in volo le finestre non restano aperte sulla carta: si chiudono da sole dopo 30 s, salvo «Tieni aperta»
+  clearTimeout(state.whatsT);
+  if (flyNow2) state.whatsT = setTimeout(() => { if (!w.dataset.pinned) hideWhats(); }, 30000);
+  delete w.dataset.pinned;
 }
 $('whats').addEventListener('click', e => {
   const a = e.target.closest('[data-wh]')?.dataset.wh, w = $('whats');
   if (a === 'close') { hideWhats(); return; }
+  if (a === 'pin') { const b = e.target.closest('[data-wh]'), on = !w.dataset.pinned; if (on) w.dataset.pinned = '1'; else delete w.dataset.pinned; b.setAttribute('aria-pressed', String(on)); b.textContent = on ? 'Aperta' : 'Tieni aperta'; return; }
   if (!a) return;
   const p = { lon: Number(w.dataset.lon), lat: Number(w.dataset.lat) }, sn = snapPoint(p);
   if (a === 'add' || a === 'ins' || a === 'start') {
@@ -3008,6 +3404,7 @@ function scaleLabels() {
       o.material.rotation = Math.atan2((bx.y - a.y) * h, (bx.x - a.x) * (view.clientWidth || 1));
     }
   }
+  declutterLabels(c, h);
   // scala grafica in miglia nautiche, solo sulla carta 2D
   const bar = $('scalebar');
   if (perPx) {
@@ -3166,7 +3563,7 @@ function renderNearest() {
     const reach = ratio ? glideReach(f.pos, f.altFt, ratio, brg, d / NM + 0.5) >= d - 250 : false;
     const freq = a.freqs.find(x => x.mhz);
     box.querySelector(`.txt[data-f="${CSS.escape(String(a.id))}"]`).innerHTML = `<b>${esc(a.icao || titleCaseIt(a.name))}</b> ${esc(aerodromeKind(a))}${freq ? ' · ' + esc(channelOf(freq.mhz)) : ''}<br>
-      ${(d / NM).toFixed(1)} NM · rotta ${String(Math.round((brg - dec + 360) % 360) || 360).padStart(3, '0')}° M${Number.isFinite(ete) ? ` · ${Math.round(ete)} min` : ''} · campo ${Math.round(a.elevM * FT)} ft
+      ${(d / NM).toFixed(1).replace('.', ',')} NM · rotta ${String(Math.round((brg - dec + 360) % 360) || 360).padStart(3, '0')}° M${Number.isFinite(ete) ? ` · ${Math.round(ete)} min` : ''} · campo ${Math.round(a.elevM * FT)} ft
       ${ratio ? `<br>Planata: ${reach && gl > 0 ? `<b class="ok">arrivi a ${Math.round(gl)} ft sul campo</b>` : '<b class="no">non raggiungibile</b>'}` : ''}`;
     const btn = box.querySelector(`[data-direct="${CSS.escape(String(a.id))}"]`), on = state.direct === a;
     btn.textContent = on ? 'Annulla diretto' : 'Diretto'; btn.classList.toggle('on', on);
@@ -3241,7 +3638,7 @@ $('trackBtn').addEventListener('click', () => {
   if (!tr.length) try { tr = JSON.parse(localStorage.getItem('airplanning.traccia') || '[]'); } catch { tr = []; }
   if (!tr.length) { showFlyMsg('Nessuna traccia registrata: la traccia si registra quando il GPS, lo strumento esterno o la simulazione sono attivi.'); return; }
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([trackGpx(tr)], { type: 'application/gpx+xml' }));
-  a.download = `traccia-${new Date(tr[0].t).toISOString().slice(0, 10)}.gpx`; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  a.download = `traccia-${localDate(tr[0].t)}.gpx`; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 });
 
 // ---------------------------------------------------------------- posizione in parole (radio, emergenza)
@@ -3298,7 +3695,7 @@ function renderEmergency() {
   for (const { a, d, brg, h, ok } of shown) {
     const freq = a.freqs.find(x => x.mhz);
     box.querySelector(`.txt[data-f="${CSS.escape(String(a.id))}"]`).innerHTML = `<b>${esc(a.icao || titleCaseIt(a.name))}</b> ${esc(aerodromeKind(a))}${freq ? ' · ' + esc(channelOf(freq.mhz)) : ''}<br>
-      ${(d / NM).toFixed(1)} NM · ${deg3(brg - dec)}° M · ${Number.isFinite(h) ? (ok ? `<b class="ok">arrivi a ${Math.round(h)} ft</b>` : h > 0 ? `<b class="no">al limite: ${Math.round(h)} ft</b>` : '<b class="no">non raggiungibile</b>') : 'planata non calcolata'}`;
+      ${(d / NM).toFixed(1).replace('.', ',')} NM · ${deg3(brg - dec)}° M · ${Number.isFinite(h) ? (ok ? `<b class="ok">arrivi a ${Math.round(h)} ft</b>` : h > 0 ? `<b class="no">al limite: ${Math.round(h)} ft</b>` : '<b class="no">non raggiungibile</b>') : 'planata non calcolata'}`;
     const btn = box.querySelector(`[data-direct="${CSS.escape(String(a.id))}"]`), on = state.direct === a;
     btn.textContent = on ? 'Annulla' : 'Diretto'; btn.classList.toggle('on', on);
   }
@@ -3365,13 +3762,13 @@ function renderTimers() {
   const ch = tm.chrono, chSec = ch ? ((ch.run ? now - ch.startAt : 0) + ch.acc) / 1000 : 0, rem = reminderState(tm.reminder, now);
   const ac = currentAircraft(), fe = f.ph.takeoffAt ? fuelEstimate({ fuelL: tm.fuelL, flowLh: ac.fuelFlowLh, flightMin: (now - f.ph.takeoffAt) / 60000, reserveMin: Number(state.nl.st.reserveMin) || 30 }) : null;
   const html = `<div class="eh"><b>Tempi e carburante</b><button type="button" class="btn" data-t="close">Chiudi</button></div>
-    <div class="trow"><span>Tempo di volo</span><strong>${f.ph.takeoffAt && f.ph.phase === 'volo' ? fmtDur((now - f.ph.takeoffAt) / 60000) : 'a terra'}</strong></div>
+    <div class="trow"><span>Tempo di volo</span><strong>${f.ph.takeoffAt && f.ph.phase === 'volo' ? fmtDurIt((now - f.ph.takeoffAt) / 60000) : 'a terra'}</strong></div>
     <div class="trow"><span>Cronometro</span><strong>${fmtMS(chSec)}</strong><button type="button" class="btn" data-t="chrono">${ch?.run ? 'Ferma' : 'Avvia'}</button><button type="button" class="btn" data-t="chrono0">Azzera</button></div>
     <div class="trow"><span>Promemoria ogni</span><select data-t="every">${[10, 15, 20, 30, 45, 60].map(m => `<option ${m === state.remindMin ? 'selected' : ''}>${m}</option>`).join('')}</select><span>min</span>
       <button type="button" class="btn" data-t="remind">${tm.reminder ? 'Spegni' : 'Avvia'}</button></div>
-    <div class="trow"><span>${rem ? `Prossimo tra <b>${fmtMS(rem.nextSec)}</b>` : 'Spento'}</span><label class="chk"><input type="checkbox" data-t="auto" ${tm.autoRemind ? 'checked' : ''}> parte da solo al decollo</label></div>
+    <div class="trow"><span>${rem ? `Prossimo tra <b>${fmtEte(rem.nextSec / 60)}</b>` : 'Spento'}</span><label class="chk"><input type="checkbox" data-t="auto" ${tm.autoRemind ? 'checked' : ''}> parte da solo al decollo</label></div>
     <div class="trow"><span>Carburante al decollo</span><input type="number" class="fld" data-t="fuel" min="0" max="300" step="1" value="${Number.isFinite(tm.fuelL) ? tm.fuelL : ''}" placeholder="litri"><span>l</span></div>
-    <div class="trow"><span>Stima ora</span><strong>${fe ? `${Math.round(fe.remL)} l · ${fmtDur(fe.endMin)}` : '—'}</strong></div>
+    <div class="trow"><span>Stima ora</span><strong>${fe ? `${Math.round(fe.remL)} l · ${fmtDurIt(fe.endMin)}` : '—'}</strong></div>
     <p class="note">Il carburante è <b>stimato</b> dal tempo di volo e dal consumo del profilo (${ac.fuelFlowLh || '?'} l/h): controlla sempre l’indicatore dell’aereo.</p>
     <div class="sh">Promemoria sui punti</div>${ptRemHtml()}
     <div class="sh">Diario dei voli</div>${logHtml()}`;
@@ -3400,7 +3797,7 @@ $('timers').addEventListener('click', e => {
   else if (k === 'csv') {
     const L = logLoad(), head = 'data;da;a;decollo_utc;atterraggio_utc;minuti;aereo;quota_max_ft;distanza_nm';
     const csv = [head, ...L.map(x => [x.date, x.from, x.to, x.off, x.on, x.min, x.aircraft, x.maxAltFt ?? '', String(x.distNm).replace('.', ',')].join(';'))].join('\n');
-    navCtx().download(`diario-voli-${new Date().toISOString().slice(0, 10)}.csv`, '﻿' + csv, 'text/csv'); return;
+    navCtx().download(`diario-voli-${localDate()}.csv`, '﻿' + csv, 'text/csv'); return;
   } else return;
   $('timerBtn').classList.toggle('on', !!state.showTimers);
   renderTimers();
@@ -3465,7 +3862,7 @@ function updateTraffic() {
   if ((ua || a) && !muted && state.trafficShown !== `${key}|closed`) {
     const txt = ua ? flarmAlarmText(ua) : trafficText(a);
     box.style.display = 'flex'; box.querySelector('[data-txt]').textContent = txt; box.dataset.key = key;
-    if (state.voice && state.trafficSaid !== key) { state.trafficSaid = key; say(ua ? flarmAlarmText(ua, true) : trafficText(a, true)); }
+    if (state.voice && state.trafficSaid !== key) { state.trafficSaid = key; say(ua ? flarmAlarmText(ua, true) : trafficText(a, true), ua ? 'crit' : 'warn'); }
   } else box.style.display = 'none';
   if (!a && !ua) state.trafficSaid = null;
   dirty = true;
@@ -3487,7 +3884,6 @@ const checksAll = () => { try { return JSON.parse(localStorage.getItem(LS_CHECKS
 const checksText = () => checksAll()[currentAircraft().id] || '';
 // lista mostrata: l'indice resta dentro l'elenco anche se si cambia aereo o si accorcia il testo
 const checkLists = () => allLists(currentAircraft().id, checksText());
-const curList = () => { const L = checkLists().lists; state.checkSel = Math.max(0, Math.min(state.checkSel || 0, L.length - 1)); return L[state.checkSel]; };
 const ckKey = (ac, L, i) => `${ac.id}|${L.title}|${i}`;
 const ckDoubt = t => (t ? `<div class="ckdoubt"><b>Da verificare (nota del programma):</b> ${esc(t)}</div>` : '');
 function checkItemHtml(it, i, done, acId) {
@@ -3497,6 +3893,26 @@ function checkItemHtml(it, i, done, acId) {
 }
 // scelta dell'aereo dentro le liste: è la stessa del piano di volo (cambia anche lì)
 const acPicker = ac => `<label class="ckac">Aereo <select data-c="ac">${state.nl.aircraft.map(a => `<option value="${esc(a.id)}" ${a.id === ac.id ? 'selected' : ''}>${esc(a.name)}${a.reg ? ' · ' + esc(a.reg) : ''}</option>`).join('')}</select></label>`;
+// Pagine delle liste: una per sezione. Una lista dell'aeroclub si divide anche ai suoi sottotitoli (per esempio
+// «Controlli motore» e «Controlli esterni» dei preliminari): ogni pagina contiene una sola sezione, mai l'inizio della
+// successiva. Le pagine si sfogliano di lato col dito (scorrimento nativo a scatti) o con le frecce (richiesta di Ale,
+// 20/11/2026). Le spunte restano legate alla voce della lista, come prima. Codice di fringuello79 di Avezzano.
+function checkPages(lists) {
+  const pages = [];
+  lists.forEach((L, li) => {
+    if (L.ref) { pages.push({ li, L, sub: '', idx: [], ref: true }); return; }
+    let cur = { li, L, sub: '', idx: [] };
+    L.items.forEach((it, i) => {
+      if (it.h && cur.idx.length) { pages.push(cur); cur = { li, L, sub: it.h, idx: [] }; return; }
+      if (it.h) { cur.sub = it.h; return; }
+      cur.idx.push(i);
+    });
+    if (cur.idx.length || !pages.some(p => p.li === li)) pages.push(cur);
+  });
+  pages.forEach((p, k) => { p.k = k; p.lastOfList = !pages[k + 1] || pages[k + 1].li !== p.li; });
+  return pages;
+}
+const pageCount = (p, ac, ck) => { const c = p.idx.filter(i => isCheckable(p.L.items[i])); return { done: c.filter(i => ck[ckKey(ac, p.L, i)]).length, n: c.length }; };
 function renderChecks() {
   const box = $('checks');
   box.classList.toggle('on', !!state.showChecks);
@@ -3512,39 +3928,91 @@ function renderChecks() {
       <div class="row"><button type="button" class="btn primary" data-c="save">Salva</button>${lists.length ? '<button type="button" class="btn" data-c="cancel">Annulla</button>' : ''}</div>`;
     return;
   }
-  const L = curList(), sel = state.checkSel;
-  const checkable = L.items.map((it, i) => isCheckable(it) ? i : -1).filter(i => i >= 0);
-  const done = checkable.filter(i => ck[ckKey(ac, L, i)]).length;
-  const src = L.club && doc ? `<p class="cksrc">${esc(doc.title)} · ${esc(doc.rev)} · Aeroclub dei Marsi</p>` : (!L.club ? '<p class="cksrc">Lista personale</p>' : '');
-  let body;
-  if (L.ref) body = `<table class="ckref">${L.ref.map(([k, v]) => { const n = noteFor(ac.id, 'ref', k); return `<tr${n ? ' class="doubt"' : ''}><td>${esc(k)}</td><td>${esc(v)}</td></tr>${n ? `<tr><td colspan="2">${ckDoubt(n)}</td></tr>` : ''}`; }).join('')}</table>`;
-  else body = L.items.map((it, i) => checkItemHtml(it, i, ck[ckKey(ac, L, i)], ac.id)).join('');
-  const foot = L.club && doc && (L.last || L.ref) ? doc.footer.map(f => `<div class="ckfoot">${f.map((x, j) => j ? `<span>${esc(x)}</span>` : `<b>${esc(x)}</b>`).join('')}</div>`).join('') + ckDoubt(noteFor(ac.id, 'footer')) : '';
-  const allDone = checkable.length && done === checkable.length;
+  const pages = checkPages(lists);
+  state.checkPage = Math.max(0, Math.min(state.checkPage || 0, pages.length - 1));
+  const pageHtml = p => {
+    const L = p.L, c = pageCount(p, ac, ck), src = L.club && doc ? `${esc(doc.title)} · ${esc(doc.rev)}` : 'Lista personale';
+    const body = p.ref
+      ? `<table class="ckref">${L.ref.map(([k, v]) => { const n = noteFor(ac.id, 'ref', k); return `<tr${n ? ' class="doubt"' : ''}><td>${esc(k)}</td><td>${esc(v)}</td></tr>${n ? `<tr><td colspan="2">${ckDoubt(n)}</td></tr>` : ''}`; }).join('')}</table>`
+      : p.idx.map(i => checkItemHtml(L.items[i], i, ck[ckKey(ac, L, i)], ac.id)).join('');
+    const foot = L.club && doc && p.lastOfList && (L.last || L.ref) ? doc.footer.map(f => `<div class="ckfoot">${f.map((x, j) => j ? `<span>${esc(x)}</span>` : `<b>${esc(x)}</b>`).join('')}</div>`).join('') + ckDoubt(noteFor(ac.id, 'footer')) : '';
+    return `<section class="ckpage" data-p="${p.k}" aria-label="${esc(L.title)}${p.sub ? ' · ' + esc(p.sub) : ''}">
+      <div class="ckph"><h3>${esc(L.title)}</h3>${p.sub ? `<div class="cksub">${esc(p.sub)}</div>` : ''}
+      <div class="ckmeta"><span>Pagina ${p.k + 1} di ${pages.length}</span>${p.ref ? '' : `<span class="ckcount ${c.n && c.done === c.n ? 'ok' : ''}" data-cnt="${p.k}">${c.done}/${c.n}${c.n && c.done === c.n ? ' ✓' : ''}</span>`}</div></div>
+      <div class="cklist">${body}${foot}<p class="cksrc">${src}</p></div></section>`;
+  };
+  const seg = p => { const c = pageCount(p, ac, ck); return `<button type="button" class="ckseg ${p.ref ? 'ref' : c.n && c.done === c.n ? 'ok' : c.done ? 'part' : ''} ${p.k === state.checkPage ? 'cur' : ''} ${p.lastOfList ? 'end' : ''}" data-c="go" data-p="${p.k}" aria-label="Pagina ${p.k + 1}: ${esc(p.L.title)}${p.sub ? ' · ' + esc(p.sub) : ''}"></button>`; };
   box.innerHTML = `<div class="eh"><b>Liste di controllo</b><button type="button" class="btn" data-c="close">Chiudi</button></div>
     ${acPicker(ac)}
-    <div class="trow"><select data-c="sel" style="flex:1">${lists.map((l, i) => `<option value="${i}" ${i === sel ? 'selected' : ''}>${esc(l.title)}${l.club ? '' : ' (personale)'}</option>`).join('')}</select>${L.ref ? '' : `<span class="ckcount ${allDone ? 'ok' : ''}">${done}/${checkable.length}</span>`}</div>
-    ${src}<div class="cklist">${body}</div>${foot}
-    <div class="row">${L.ref ? '' : '<button type="button" class="btn" data-c="reset">Ricomincia</button>'}${sel < lists.length - 1 ? `<button type="button" class="btn ${allDone ? 'primary' : ''}" data-c="next">Lista seguente</button>` : ''}<button type="button" class="btn" data-c="edit">Liste personali</button></div>`;
+    <div class="ckpager"><button type="button" class="btn ckarrow" data-c="prev" aria-label="Pagina precedente">◀</button><div class="ckbar">${pages.map(seg).join('')}</div><button type="button" class="btn ckarrow" data-c="next" aria-label="Pagina successiva">▶</button></div>
+    <div class="ckpages" tabindex="0">${pages.map(pageHtml).join('')}</div>
+    <div class="row"><button type="button" class="btn" data-c="reset">Ricomincia la pagina</button><button type="button" class="btn" data-c="edit">Liste personali</button></div>`;
+  const strip = box.querySelector('.ckpages');
+  strip.scrollLeft = state.checkPage * strip.clientWidth;
+  let t = 0;
+  strip.addEventListener('scroll', () => { clearTimeout(t); t = setTimeout(() => setCheckPage(Math.round(strip.scrollLeft / Math.max(1, strip.clientWidth)), false), 90); }, { passive: true });
+  strip.addEventListener('keydown', e => { if (e.key === 'ArrowRight') setCheckPage(state.checkPage + 1); else if (e.key === 'ArrowLeft') setCheckPage(state.checkPage - 1); });
+  // Sfoglio anche col mouse e dove lo scorrimento nativo non parte: se il dito (o il mouse) si sposta di lato e la
+  // pagina non si è mossa da sola, si passa alla pagina accanto. Quando lo scorrimento nativo prende il gesto il
+  // browser annulla il puntatore (pointercancel) e qui non succede nulla: niente doppio salto.
+  let sw = null;
+  strip.addEventListener('pointerdown', e => { sw = { x: e.clientX, y: e.clientY, left: strip.scrollLeft }; }, { passive: true });
+  strip.addEventListener('pointercancel', () => { sw = null; }, { passive: true });
+  strip.addEventListener('pointerup', e => {
+    if (!sw) return;
+    const dx = e.clientX - sw.x, dy = e.clientY - sw.y, moved = Math.abs(strip.scrollLeft - sw.left) > 4; sw = null;
+    if (!moved && Math.abs(dx) > 50 && Math.abs(dx) > 1.5 * Math.abs(dy)) { state.ckSwiped = Date.now(); setCheckPage(state.checkPage + (dx < 0 ? 1 : -1)); }
+  });
+  strip.addEventListener('click', e => { if (Date.now() - (state.ckSwiped || 0) < 300) { e.preventDefault(); e.stopPropagation(); } }, true);
+}
+// Va alla pagina k (scorrendo, se serve) e aggiorna la barra delle pagine senza ridisegnare le liste
+function setCheckPage(k, scroll = true) {
+  const box = $('checks'), strip = box.querySelector('.ckpages'); if (!strip) return;
+  const n = strip.children.length; k = Math.max(0, Math.min(n - 1, k));
+  state.checkPage = k;
+  box.querySelectorAll('.ckseg').forEach(b => b.classList.toggle('cur', Number(b.dataset.p) === k));
+  box.querySelector('[data-c="prev"]').disabled = k === 0; box.querySelector('[data-c="next"]').disabled = k === n - 1;
+  if (scroll) strip.scrollTo({ left: k * strip.clientWidth, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+}
+function updateCheckCounts() {
+  const box = $('checks'), ac = currentAircraft(), ck = state.checkState ||= {}, pages = checkPages(checkLists().lists);
+  for (const p of pages) {
+    const c = pageCount(p, ac, ck), cnt = box.querySelector(`[data-cnt="${p.k}"]`), s = box.querySelector(`.ckseg[data-p="${p.k}"]`);
+    if (cnt) { cnt.textContent = `${c.done}/${c.n}${c.n && c.done === c.n ? ' ✓' : ''}`; cnt.classList.toggle('ok', !!c.n && c.done === c.n); }
+    if (s && !p.ref) { s.classList.toggle('ok', !!c.n && c.done === c.n); s.classList.toggle('part', c.done > 0 && c.done < c.n); }
+  }
+  return pages;
 }
 $('checks').addEventListener('click', e => {
   const k = e.target.dataset.c, box = $('checks'), ck = state.checkState ||= {}, ac = currentAircraft();
   if (!k || k === 'text' || k === 'sel' || k === 'ac') return;
+  if (k === 'item') {
+    // spunta senza ridisegnare: la pagina resta dov'è; a pagina completata si passa da soli alla successiva
+    const pages = checkPages(checkLists().lists), p = pages[state.checkPage], i = Number(e.target.dataset.i);
+    if (!p) return;
+    ck[ckKey(ac, p.L, i)] = e.target.checked;
+    e.target.closest('.ckrow')?.classList.toggle('done', e.target.checked);
+    updateCheckCounts();
+    const c = pageCount(p, ac, ck);
+    clearTimeout(state.ckAuto);
+    if (e.target.checked && c.n && c.done === c.n && state.checkPage < pages.length - 1) { const at = state.checkPage; state.ckAuto = setTimeout(() => { if (state.checkPage === at) setCheckPage(at + 1); }, 650); }
+    if (state.emerg) { delete $('emerg').dataset.key; renderEmergency(); }
+    return;
+  }
+  if (k === 'prev' || k === 'next') { clearTimeout(state.ckAuto); setCheckPage(state.checkPage + (k === 'next' ? 1 : -1)); return; }
+  if (k === 'go') { clearTimeout(state.ckAuto); setCheckPage(Number(e.target.dataset.p)); return; }
   if (k === 'close') { state.showChecks = false; }
-  else if (k === 'save') { const all = checksAll(); all[ac.id] = checklistText(parseChecklists(box.querySelector('[data-c="text"]').value)); try { localStorage.setItem(LS_CHECKS, JSON.stringify(all)); } catch { /* memoria piena */ } state.checkEdit = false; state.checkSel = 0; document.activeElement?.blur(); }
+  else if (k === 'save') { const all = checksAll(); all[ac.id] = checklistText(parseChecklists(box.querySelector('[data-c="text"]').value)); try { localStorage.setItem(LS_CHECKS, JSON.stringify(all)); } catch { /* memoria piena */ } state.checkEdit = false; state.checkPage = 0; document.activeElement?.blur(); }
   else if (k === 'cancel') { state.checkEdit = false; document.activeElement?.blur(); }
   else if (k === 'edit') state.checkEdit = true;
-  else if (k === 'item') { const L = curList(); ck[ckKey(ac, L, e.target.dataset.i)] = e.target.checked; }
-  else if (k === 'reset') { const L = curList(); for (const kk of Object.keys(ck)) if (kk.startsWith(`${ac.id}|${L.title}|`)) delete ck[kk]; }
-  else if (k === 'next') { state.checkSel = (state.checkSel || 0) + 1; box.querySelector('.cklist')?.scrollTo?.(0, 0); }
+  else if (k === 'reset') { const p = checkPages(checkLists().lists)[state.checkPage]; if (p) for (const i of p.idx) delete ck[ckKey(ac, p.L, i)]; }
   renderChecks(); if (state.emerg) { delete $('emerg').dataset.key; renderEmergency(); }
 });
 $('checks').addEventListener('change', e => {
   const k = e.target.dataset.c;
-  if (k === 'sel') { state.checkSel = Number(e.target.value); e.target.blur(); renderChecks(); }
-  else if (k === 'ac') {
+  if (k === 'ac') {
     // stesso aereo del piano di volo: si salva e il piano si ricalcola
-    state.nl.st.aircraftId = e.target.value; state.checkSel = 0; state.checkEdit = false;
+    state.nl.st.aircraftId = e.target.value; state.checkPage = 0; state.checkEdit = false;
     try { localStorage.setItem('airplanning.piano', JSON.stringify(state.nl.st)); } catch { /* memoria piena */ }
     e.target.blur(); state.nlPending = true; buildRoute(); refresh(); renderChecks();
   }
@@ -3555,7 +4023,7 @@ $('checkTop').addEventListener('click', toggleChecks);
 function openEmergencyChecklist() {
   const lists = checkLists().lists, i = lists.findIndex(isEmergency);
   if (i < 0) return;
-  state.showChecks = true; state.checkEdit = false; state.checkSel = i; $('checkBtn').classList.add('on'); renderChecks();
+  state.showChecks = true; state.checkEdit = false; state.checkPage = checkPages(lists).findIndex(p => p.li === i); $('checkBtn').classList.add('on'); renderChecks();
 }
 
 // ---------------------------------------------------------------- rivedere il volo (dopo l'atterraggio)
@@ -3614,7 +4082,7 @@ function renderReview() {
   if (box.dataset.n !== String(r.samples.length)) {
     box.dataset.n = String(r.samples.length);
     box.innerHTML = `<div class="eh"><b>Rivedi il volo</b><button type="button" class="btn" data-r="close">Chiudi</button></div>
-      <div class="trow"><span>Durata ${fmtDur(r.durMin)} · ${r.distNm.toFixed(1).replace('.', ',')} NM · quota max ${Math.round(r.maxAltFt / 10) * 10} ft</span></div>
+      <div class="trow"><span>Durata ${fmtDurIt(r.durMin)} · ${r.distNm.toFixed(1).replace('.', ',')} NM · quota max ${Math.round(r.maxAltFt / 10) * 10} ft</span></div>
       <div class="trow"><span>Margine minimo dal terreno lontano dai campi: <b>${Number.isFinite(r.minAglFt) ? Math.round(r.minAglFt) + ' ft' : '—'}</b>${state.route.length > 1 ? ` · scostamento max dalla rotta <b>${r.maxXtNm.toFixed(1).replace('.', ',')} NM</b>` : ''}</span></div>
       <canvas data-r="chart" style="width:100%;height:120px;display:block;margin:6px 0;touch-action:none"></canvas>
       <input type="range" data-r="pos" min="0" max="${r.samples.length - 1}" value="${r.idx}" style="width:100%">
@@ -3707,6 +4175,8 @@ window.__airplanning = {
     return { n, first: a?.name, second: b?.name, firstLow: a?.minLowerFt, secondLow: b?.minLowerFt };
   },
   zoomTo(km) { const t = controls.target, d = cam().position.clone().sub(t).setLength(km); cam().position.copy(t).add(d); controls.update(); dirty = true; },
+  integrity: () => integrityItems(),
+  airCache: () => { let n = 0; for (const v of airGeomCache.values()) for (const r of v.rings) n += r.pos.length + r.cap.length; return { spaces: airGeomCache.size, floats: n }; },
   lod: () => ({ shown: LOD.shown.length, cache: LOD.cache.size, builds: LOD.builds, ms: Math.round(LOD.ms), levels: LOD.shown.map(m => m.userData.tile.level), N: LOD.N }),
   setRoute(points) { state.route = points.map(([lon, lat], i) => ({ lon, lat, name: `P${i + 1}` })); state.routeDemo = false; buildRoute(); refresh(); },
   meshTopY, yAbove, groups, buildTrail, planProfile,
@@ -3723,7 +4193,7 @@ window.__airplanning = {
   setWeather(json, now) { state.wxErr = ''; state.wx = { stations: parseMetarsFor(json.metar, now), sigmets: [], fetched: Date.now() }; buildWeather(); refresh(); },
   tick(n = 1) { for (let i = 0; i < n; i++) flyTick(); },
   // posizione «come dal GPS» per le prove (fasi del volo, diario, emergenza): t in ms
-  fix({ lon, lat, altFt, gsKt, trk, t }) { const f = state.fly; Object.assign(f, { active: true, source: 'prova', pos: { lon, lat }, altFt, gsKt, trk, fixT: t, altLabel: 'Quota di prova' }); flyTick(); },
+  fix({ lon, lat, altFt, gsKt, trk, t }) { const f = state.fly; Object.assign(f, { active: true, source: 'prova', pos: { lon, lat }, altFt, gsKt, trk, fixT: t, fixWall: Date.now(), altLabel: 'Quota di prova' }); if (!f.dog) startWatchdog(); flyTick(); },
   timers: () => state.timers, logLoad, ptRem: () => state.ptRem, reviewObjs: () => groups.review.children.length, traffic: () => state.traffic, review: () => state.review, startReview, onExtLine, positionWords, hazard: () => hazU.uHaz.value.toArray(), setGlideMargin(v) { state.glideMargin = v; },
   // posizione sullo schermo (pixel) del nodo i della rotta o della maniglia della quota
   screenOf(i, handle = false) {
