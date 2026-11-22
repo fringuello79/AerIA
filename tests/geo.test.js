@@ -1,7 +1,7 @@
 // AerIA VFR · © 2026 fringuello79 (Avezzano). Tutti i diritti riservati.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { distM, destPoint, bearingDist, pointInRing, clipRing, bearingDeg, cardinal } from '../web-prototype/src/geo.js';
+import { distM, destPoint, bearingDist, pointInRing, clipRing, bearingDeg, cardinal, insideAlong } from '../web-prototype/src/geo.js';
 
 test('un grado di latitudine a 42-43° N vale 111,08 km (geodetica WGS84 con pyproj: 111 083 m)', () => {
   // il vecchio test fissava 110 540 m, il valore all'equatore: era sbagliato dello 0,5 % e l'errore era nel codice
@@ -44,4 +44,20 @@ test('distanze e rotte contro la geodetica WGS84 (pyproj, Karney): scarto sotto 
     assert.ok(Math.abs(_distM(A, B) - d) / d < 5e-4, `distanza ${_distM(A, B)} invece di ${d}`);
     assert.ok(Math.abs(_brg(A, B) - az) < 0.4, `rotta ${_brg(A, B)} invece di ${az}`);
   }
+});
+
+test('dentro lungo un segmento: uguale a pointInRing punto per punto (0.23.1)', () => {
+  // generatore pseudo-casuale fisso (risultato ripetibile)
+  let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const ts = Array.from({ length: 121 }, (_, k) => k / 120);
+  let checked = 0;
+  for (let n = 0; n < 200; n++) {
+    // poligono a stella (anche concavo) attorno a 13,5 E 42 N
+    const m = 5 + Math.floor(rnd() * 40), ring = [];
+    for (let i = 0; i < m; i++) { const ang = (i / m) * 2 * Math.PI, r = 0.02 + rnd() * 0.1; ring.push([13.5 + r * Math.cos(ang), 42 + r * Math.sin(ang)]); }
+    const a = [13.5 + (rnd() - 0.5) * 0.3, 42 + (rnd() - 0.5) * 0.3], b = [13.5 + (rnd() - 0.5) * 0.3, 42 + (rnd() - 0.5) * 0.3];
+    const got = insideAlong(ring, a, b, ts);
+    ts.forEach((t, k) => { assert.equal(got[k], pointInRing([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t], ring), `poligono ${n}, t=${t}`); checked++; });
+  }
+  assert.equal(checked, 200 * 121);
 });

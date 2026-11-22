@@ -13,6 +13,8 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(AggiornamentiPlugin.class);
         // avvisi a voce nativi (la WebView non ha la sintesi vocale del web)
         registerPlugin(VocePlugin.class);
+        // posizione dal ricevitore GPS con satelliti e permessi (la WebView non dice perché la posizione manca)
+        registerPlugin(PosizionePlugin.class);
         super.onCreate(savedInstanceState);
         // schermo sempre acceso finché l'app è in primo piano (pianificazione e volo); Android lo toglie da solo
         // quando l'app va in secondo piano

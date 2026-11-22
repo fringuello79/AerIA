@@ -1,7 +1,7 @@
 // AerIA VFR · © 2026 fringuello79 (Avezzano). Tutti i diritti riservati.
 // Regole e controlli: festività, limiti VDS, analisi della rotta, previsione dei conflitti in volo.
 // Codice a regole verificabile: nessuna decisione di sicurezza è affidata a modelli linguistici.
-import { NM, KT, distM, destPoint, pointInRing, bearingDeg } from './geo.js';
+import { NM, KT, distM, destPoint, pointInRing, bearingDeg, degLengths } from './geo.js';
 import { limitFt, limitText, category, entryRule } from './airspace.js';
 
 // Festività nazionali italiane (con Pasquetta e, dal 2026, il 4 ottobre: L. 151/2025)
@@ -192,6 +192,12 @@ export function analyseRoute({ route, cruiseFt, pilot, qnh, airspaces, terrain, 
 export const TERRAIN_CRIT_S = 60, TERRAIN_WARN_S = 120;
 export function lookahead({ pos, trackDeg, gsKt, altFt, minutes = 5, stepSec = 10, pilot, qnh, airspaces, terrain, day, uncFt = 0, obstacles = [], obstacleTopFt = null, vsFpm = 0, floorFt = -Infinity, warnAglFt = 300, turnRateDps = 0, terrainWarnS = TERRAIN_WARN_S, terrainCritS = TERRAIN_CRIT_S }) {
   const events = [], seen = new Set();
+  // Solo gli spazi raggiungibili nel tempo della previsione (velocità × minuti + 1 NM, anche virando): stesso
+  // risultato, molto meno lavoro a ogni passo (0.23.1, fluidità sul tablet)
+  {
+    const reachM = (Math.max(gsKt, 0) * minutes / 60 + 1) * NM, L = degLengths(pos.lat), dLat = reachM / L.lat, dLon = reachM / L.lon;
+    airspaces = airspaces.filter(a => !a.bbox || !(a.bbox.lonMax < pos.lon - dLon || a.bbox.lonMin > pos.lon + dLon || a.bbox.latMax < pos.lat - dLat || a.bbox.latMin > pos.lat + dLat));
+  }
   const nowInside = new Set(airspacesAt(pos.lon, pos.lat, terrain.elevFt(pos.lon, pos.lat), airspaces, qnh).filter(h => altFt >= h.lo && altFt <= h.hi).map(h => h.a));
   const v = Math.max(gsKt, 0) * KT;
   // Traiettoria verticale: con un variometro affidabile (oltre ±100 ft/min) la quota prevista segue la salita o la

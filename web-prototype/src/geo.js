@@ -104,6 +104,26 @@ export function pointInRing(pt, ring) {
   return inside;
 }
 
+// Dentro o fuori dall'anello lungo un segmento da a a b, ai parametri ts (0..1, crescenti): si trovano una volta sola
+// i punti in cui il segmento attraversa il bordo, poi si conta. Stesso risultato di pointInRing punto per punto (salvo
+// punti esattamente sul bordo), ma il lavoro è un giro dei lati invece di un giro per ogni punto (dalla 0.23.1: profilo
+// davanti all'aereo). Codice di fringuello79 di Avezzano.
+export function insideAlong(ring, a, b, ts) {
+  const ax = a[0], ay = a[1], dx = b[0] - ax, dy = b[1] - ay, cross = [];
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const px = ring[j][0], py = ring[j][1], ex = ring[i][0] - px, ey = ring[i][1] - py;
+    const den = dx * ey - dy * ex;
+    if (den === 0) continue;
+    const t = ((px - ax) * ey - (py - ay) * ex) / den, u = ((px - ax) * dy - (py - ay) * dx) / den;
+    if (t > 0 && t <= 1 && u >= 0 && u < 1) cross.push(t);
+  }
+  cross.sort((x, y) => x - y);
+  let inside = pointInRing(a, ring), k = 0;
+  const out = new Array(ts.length);
+  for (let n = 0; n < ts.length; n++) { while (k < cross.length && cross[k] <= ts[n]) { inside = !inside; k++; } out[n] = inside; }
+  return out;
+}
+
 export function ringBBox(ring) {
   let lonMin = Infinity, lonMax = -Infinity, latMin = Infinity, latMax = -Infinity;
   for (const [x, y] of ring) { if (x < lonMin) lonMin = x; if (x > lonMax) lonMax = x; if (y < latMin) latMin = y; if (y > latMax) latMax = y; }

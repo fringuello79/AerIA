@@ -8,7 +8,43 @@ Ogni versione indica il commit da cui è stata creata. Il repository pubblico `f
 0.20.0 (8/11/2026) da un solo commit: le versioni precedenti restano descritte qui, senza commit né pagina di rilascio. Il workflow «App Android» crea in automatico l'etichetta
 (tag) `vX.Y.Z` su quel commit e, per la versione più recente, la pagina di rilascio su GitHub con l'APK.
 
-## [0.23.0] - 2026-11-20
+## [0.23.1] - 2026-11-22
+
+Dalla prova sul tablet di Ale: la posizione compariva un attimo e poi restava «persa», e il programma andava a
+scatti. Correzioni misurate con la CPU rallentata 6 volte (come un tablet di fascia media).
+
+### GPS
+- **Posizione dal ricevitore GPS del tablet** con un modulo nativo (`PosizionePlugin.java`) invece che dalla WebView:
+  una posizione al secondo, satelliti visti e usati, permessi, presenza del ricevitore. La posizione dalla rete arriva
+  solo come ripiego, segnata «dalla rete». Nella pagina web resta la posizione del browser.
+- **Il programma dice perché la posizione manca** (`gpsdiag.js`, con test): permesso solo «approssimativo» (Android dà
+  allora una posizione ogni pochi minuti), permesso negato, tablet senza ricevitore GPS, posizione di Android spenta,
+  in attesa dei satelliti (dopo un minuto con pochi satelliti: «serve il cielo libero»). Nel semaforo e nell'avviso
+  grande, con il pulsante per aprire le impostazioni giuste.
+- Prima della prima posizione si legge «In attesa della prima posizione», non «persa»; la voce non dice «persa» se una
+  posizione non c'è mai stata.
+- La richiesta di posizione della WebView non si riavvia più ogni 30 s senza posizione (ogni riavvio poteva far
+  ripartire da capo la ricerca dei satelliti): si riavvia solo se resta muta, senza posizioni né errori, per 90 s.
+
+### Fluidità
+- **Terreno che arriva durante il volo o spostando la carta:** si rifanno solo gli spazi aerei sopra l'area nuova, e il
+  resto si ridisegna a pezzi, un lavoro per fotogramma. Prima si ricalcolava tutto in un colpo: il blocco più lungo in
+  volo simulato passa da 4,6 s a 1,3 s (CPU rallentata 6 volte). Le aree arrivate insieme si sommano (prima valeva solo
+  l'ultima).
+- **Spazi aerei:** le maglie condivise si costruiscono solo quando cambia ciò che è in vista; quando cambia soltanto
+  l'evidenziazione (spazi davanti, vicini, dentro) si riscrive la trasparenza e si disegnano a parte solo quelli
+  evidenziati.
+- **Profilo davanti all'aereo:** dentro o fuori dagli spazi calcolato una volta lungo la linea (`insideAlong`, provato
+  contro il calcolo punto per punto su 24 200 punti) e solo per gli spazi entro 10,5 NM: da 809 a 260 ms nella prova.
+- **Previsione a 5 minuti:** solo gli spazi raggiungibili nel tempo della previsione (stesso risultato, meno lavoro).
+
+### Diagnosi
+- **Impostazioni → «Diagnosi (GPS e fluidità)»:** un rapporto da copiare con modello del tablet, versione di Android e
+  della WebView, scheda grafica, qualità grafica, tempi dei fotogrammi e del passo di volo, attività lunghe, stato
+  completo del GPS e diagnosi. Nessuna posizione nel testo.
+- Prova automatica del GPS nativo e della diagnosi con un modulo finto: `tools/shot_gps.py`.
+
+## [0.23.0] - 2026-11-20 · commit 84f0eb40a2fb233c804c0be0a78863b4c0dcdb94
 
 Avvisi in volo più precisi e meno invadenti, discesa guidata, quote sicure. Regole nuove in `alerts.js` e
 `descent.js`, con test a valori calcolati a parte; prove in Chrome in `tools/shot_023.py`.

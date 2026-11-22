@@ -6,7 +6,7 @@ import { OrbitControls } from '../OrbitControls.js';
 import { Line2 } from '../lines/Line2.js';
 import { LineMaterial } from '../lines/LineMaterial.js';
 import { LineGeometry } from '../lines/LineGeometry.js';
-import { FT, NM, KT, makeProjection, distM, bearingDeg, destPoint, clipRing, densify, ringBBox, cardinal } from './geo.js';
+import { FT, NM, KT, makeProjection, distM, bearingDeg, destPoint, clipRing, densify, ringBBox, cardinal, degLengths, insideAlong } from './geo.js';
 import { Terrain, parseHgt, parseTiff, gridFromPack, decodePackGrid } from './terrain.js';
 import { verticalProfile } from './vprofile.js';
 import { rootTiles, selectLod } from './lod.js';
@@ -33,6 +33,7 @@ import { ingestFlarm, pruneTraffic, trafficList, trafficAlarm, trafficText, flar
 import { analyzeFlight } from './debrief.js';
 import { airspacesAround, isNear, emphasisIds, exitTimeS, terrainAlertConfig, filterTerrainEvents, call500Step, safeHereFt, safeRouteFt, aglShown, nearSpeech, SAFE_RADIUS_KM } from './alerts.js';
 import { descentGuide, descentCues } from './descent.js';
+import { gpsDiagnosis } from './gpsdiag.js';
 import { parseChecklists, checklistText, isEmergency, allLists, isCheckable } from './checklist.js';
 import { UPDATE_CHANNELS, pickUpdate, shouldCheck, compareVersions } from './update.js';
 import { ACM_CHECKLISTS } from './checklists-acm.js';
@@ -600,13 +601,27 @@ function viewKm() { return state.dim === '2d' ? (ortho.top - ortho.bottom) / ort
 const terrainMeshes = () => LOD.shown;
 
 // ---------------------------------------------------------------- caricamento delle tessere fini quando servono
-let terrainReloadT = null;
+// Quando arrivano tessere fini di terreno si rifanno solo gli spazi aerei che toccano l'area nuova (limiti dal suolo e
+// pareti), e il resto si ridisegna a pezzi, un lavoro per fotogramma a carta ferma. Fino alla 0.23.0 si ricalcolavano
+// tutti gli spazi e tutto il resto in un colpo solo: in volo, a ogni tessera nuova, il tablet si bloccava per secondi.
+// Le aree arrivate insieme si sommano (prima valeva solo l'ultima). Codice di fringuello79 di Avezzano.
+let terrainReloadT = null, terrainNewB = null;
+const unionB = (a, b) => (!a ? { ...b } : { lonMin: Math.min(a.lonMin, b.lonMin), lonMax: Math.max(a.lonMax, b.lonMax), latMin: Math.min(a.latMin, b.latMin), latMax: Math.max(a.latMax, b.latMax) });
+const bOverlap = (a, b) => !(a.lonMax < b.lonMin || a.lonMin > b.lonMax || a.latMax < b.latMin || a.latMin > b.latMax);
 function ensureTerrainFor(b) {
   if (!b || !terrain.missing(b).length) return;
   terrain.ensure(b).then(n => {
     if (!n) return;
+    terrainNewB = unionB(terrainNewB, b);
     clearTimeout(terrainReloadT);
-    terrainReloadT = setTimeout(() => { computeAirspaceLimits(); lodInvalidate(b); buildAirspaces(); buildFeatures(); buildBasemap(); buildRoute(); buildPlane(); refresh(); }, 60);
+    terrainReloadT = setTimeout(() => {
+      const nb = terrainNewB; terrainNewB = null;
+      const hit = state.airspaces.filter(a => !a.bbox || bOverlap(a.bbox, nb));
+      for (const a of hit) a.terrRev = (a.terrRev || 0) + 1;
+      computeAirspaceLimits(hit); lodInvalidate(nb);
+      queueJob('air', buildAirspaces); queueJob('feat', buildFeatures); queueJob('base', buildBasemap);
+      queueJob('route', () => { buildRoute(); buildPlane(); refresh(); });
+    }, 60);
   }).catch(e => showFlyMsg(`Terreno dettagliato non caricato: ${e.message}`));
 }
 function boundsAround(points, km) {
@@ -718,7 +733,7 @@ function prepareAirspaces() {
   }
   computeAirspaceLimits();
 }
-function computeAirspaceLimits() {
+function computeAirspaceLimits(list = state.airspaces) {
   const q = qnh();
   const scan = s => {
     let minLower = Infinity, maxGap = -Infinity;
@@ -729,7 +744,7 @@ function computeAirspaceLimits() {
     }
     return { minLower, empty: s.clipped.length > 0 && Number.isFinite(maxGap) && maxGap <= 0 };
   };
-  for (const s of state.airspaces) {
+  for (const s of list) {
     const prev = JSON.stringify(s.upper);
     if (s.upperSource) s.upper = s.upperSource;     // si riparte sempre dal dato della fonte
     let r = scan(s);
@@ -795,7 +810,8 @@ const airGeomCache = new Map();
 const pushAll = (dst, src) => { for (let i = 0; i < src.length; i++) dst.push(src[i]); };
 function airGeom(a, ceil) {
   const P = state.proj, o = P.origin;
-  const key = `${qnh()}|${ceil}|${ui.exag.value}|${o.lon},${o.lat}|${terrain.grids.length}:${terrain.name || ''}:${terrain.demo}|${a.limRev || 0}`;
+  // terreno: conta solo quello sotto lo spazio (a.terrRev cresce quando arrivano tessere che lo toccano)
+  const key = `${qnh()}|${ceil}|${ui.exag.value}|${o.lon},${o.lat}|${a.terrRev || 0}:${terrain.name || ''}:${terrain.demo}|${a.limRev || 0}`;
   const hit = airGeomCache.get(a);
   if (hit && hit.key === key) return hit.rings;
   const rings = [];
@@ -832,76 +848,113 @@ function airGeom(a, ceil) {
   airGeomCache.set(a, { key, rings });
   return rings;
 }
-function buildAirspaces() {
+// Disegno degli spazi aerei in due parti (dalla 0.23.1). Le maglie condivise con tutti gli spazi in vista (pareti,
+// cieli, contorni) si costruiscono solo quando cambia ciò che è in vista o la geometria; quando cambia soltanto
+// l'evidenziazione (in volo succede spesso: spazi davanti, vicini, dentro) si riscrive la trasparenza dei vertici e si
+// disegnano a parte solo gli spazi evidenziati. Prima ogni cambio ricostruiva tutto: sul tablet decine o centinaia di
+// millisecondi di blocco a ogni avviso che compariva o spariva. Codice di fringuello79 di Avezzano.
+const AIR = { key: '', ranges: [], attrs: null, lineMat: null, labs: new Map(), hotObjs: [], hotLabs: [] };
+const WALL_TOP = [0, 0, 1, 0, 1, 1];   // schema delle sei vertici di ogni quadrilatero di parete: 1 = in alto
+function buildAirShared(base, ceil, key) {
   groups.air.clear(); groups.labels.clear();
-  if (!state.proj) return;
-  const ceil = airCeilFt();
-  const rel = relevantAirspaces(), anyRel = rel.size > 0;
-  const vis = visibleAirspaces().filter(a => rel.has(a) || bboxInFocus(a.bbox));
-  if (!state.labelsTouched) ui.showLabels.checked = state.mode === 'expert' && vis.length <= 25;
-  // Fluidità: gli spazi «normali» (non evidenziati né selezionati) finiscono in tre sole maglie condivise (pareti,
-  // cieli, contorni) invece di 3–4 oggetti ciascuno: da circa 600 disegni per fotogramma a pochi. Ogni triangolo sa a
-  // quale spazio appartiene (faceMap), così il tocco li distingue lo stesso.
+  Object.assign(AIR, { key, ranges: [], attrs: null, lineMat: null, labs: new Map(), hotObjs: [], hotLabs: [] });
   const B = { wPos: [], wCol: [], wMap: [], cPos: [], cCol: [], cMap: [], lPos: [], lCol: [] };
-  for (const a of vis) {
-    const color = new THREE.Color(CAT_COLOR[category(a)]), hot = rel.has(a), sel = state.selected === a;
-    // opacità: evidenziato 0,38 (0,5 se selezionato), normale 0,22, attenuato 0,1 quando c'è qualcosa da evidenziare
-    const op = sel ? 0.5 : hot ? 0.38 : anyRel ? 0.1 : 0.22;
-    for (const { ring, loc, terr, top, bot, floating, pos, cap } of airGeom(a, ceil)) {
-      // pareti sfumate: piene in alto, quasi trasparenti in basso (si legge il volume senza «impastare» la carta)
-      const al = [], aTop = Math.min(0.75, op * 2.1), aBot = op * 0.25;
-      for (let k = 0; k < pos.length / 18; k++) al.push(aBot, aBot, aTop, aBot, aTop, aTop);
-      const capA = sel ? 0.3 : hot ? 0.16 : op * 0.4;
-      if (!hot && !sel) {
-        // nelle maglie condivise
-        pushAll(B.wPos, pos); for (const x of al) B.wCol.push(color.r, color.g, color.b, x); for (let k = 0; k < pos.length / 9; k++) B.wMap.push(a);
-        pushAll(B.cPos, cap); for (let k = 0; k < cap.length / 3; k++) B.cCol.push(color.r, color.g, color.b, capA); for (let k = 0; k < cap.length / 9; k++) B.cMap.push(a);
-        const seg = arr => { for (let i = 0; i < loc.length; i++) { const j = (i + 1) % loc.length; B.lPos.push(loc[i].x, yOf(arr[i]), loc[i].z, loc[j].x, yOf(arr[j]), loc[j].z); B.lCol.push(color.r, color.g, color.b, color.r, color.g, color.b); } };
-        seg(top); if (floating) seg(bot);
-      } else {
-        const geo = new THREE.BufferGeometry();
-        geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-        geo.setAttribute('color', new THREE.Float32BufferAttribute(al.flatMap(x => [color.r, color.g, color.b, x]), 4));
-        const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, side: THREE.DoubleSide, depthWrite: false }));
-        mesh.userData.airspace = a; mesh.renderOrder = hot ? 3 : 2;
-        groups.air.add(mesh);
-        const cg = new THREE.BufferGeometry(); cg.setAttribute('position', new THREE.Float32BufferAttribute(cap, 3));
-        const capMesh = new THREE.Mesh(cg, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: capA, side: THREE.DoubleSide, depthWrite: false }));
-        capMesh.userData.airspace = a; capMesh.renderOrder = 2; groups.air.add(capMesh);
-      }
-      const lineMat = new THREE.LineBasicMaterial({ color, transparent: !hot, opacity: hot ? 1 : anyRel ? 0.35 : 0.8 });
-      const outline = arr => new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(loc.map((p, i) => new THREE.Vector3(p.x, yOf(arr[i]), p.z))), lineMat);
-      if (hot || sel) { groups.air.add(outline(top)); if (floating) groups.air.add(outline(bot)); }
-      // spazi che contano per la rotta: bordo superiore spesso
-      if (hot) { const pts = loc.map((p, i) => new THREE.Vector3(p.x, yOf(top[i]), p.z)); pts.push(pts[0]); const fl = fatLine(pts, fatMat({ color, linewidth: sel ? 4 : 3 })); fl.renderOrder = 3; groups.air.add(fl); }
-      if (hot) {
-        // spigoli verticali ogni 3 km circa e impronta sul terreno: aiutano a capire dove inizia e finisce il volume
-        const edges = [];
-        for (let i = 0; i < ring.length; i += 8) if (top[i] > bot[i]) edges.push(new THREE.Vector3(loc[i].x, yOf(bot[i]), loc[i].z), new THREE.Vector3(loc[i].x, yOf(top[i]), loc[i].z));
-        groups.air.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(edges), lineMat));
-        if (floating) groups.air.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(loc.map((p, i) => new THREE.Vector3(p.x, yOf((Number.isFinite(terr[i]) ? terr[i] : 0) + 60), p.z))),
-          new THREE.LineDashedMaterial({ color, dashSize: 0.5, gapSize: 0.35 })).computeLineDistances());
-      }
+  for (const a of base) {
+    const color = new THREE.Color(CAT_COLOR[category(a)]);
+    const r = { a, w0: B.wPos.length / 3, c0: B.cPos.length / 3, l0: B.lPos.length / 3 };
+    const labs = [];
+    for (const { loc, top, bot, floating, pos, cap } of airGeom(a, ceil)) {
+      pushAll(B.wPos, pos); for (let k = 0; k < pos.length / 3; k++) B.wCol.push(color.r, color.g, color.b, 0); for (let k = 0; k < pos.length / 9; k++) B.wMap.push(a);
+      pushAll(B.cPos, cap); for (let k = 0; k < cap.length / 3; k++) B.cCol.push(color.r, color.g, color.b, 0); for (let k = 0; k < cap.length / 9; k++) B.cMap.push(a);
+      const seg = arr => { for (let i = 0; i < loc.length; i++) { const j = (i + 1) % loc.length; B.lPos.push(loc[i].x, yOf(arr[i]), loc[i].z, loc[j].x, yOf(arr[j]), loc[j].z); B.lCol.push(color.r, color.g, color.b, 0, color.r, color.g, color.b, 0); } };
+      seg(top); if (floating) seg(bot);
       let cx = 0, cz = 0; loc.forEach(p => { cx += p.x; cz += p.z; });
       const lab = makeLabel(`${a.name} · ${limitText(a.lower)}–${limitText(a.upper)}`, CAT_COLOR[category(a)]);
       lab.position.set(cx / loc.length, yOf(Math.max(...top)) + 0.9, cz / loc.length);
-      lab.userData.hot = hot;
-      lab.visible = hot || ui.showLabels.checked;
-      groups.labels.add(lab);
+      groups.labels.add(lab); labs.push(lab);
+    }
+    Object.assign(r, { w1: B.wPos.length / 3, c1: B.cPos.length / 3, l1: B.lPos.length / 3 });
+    AIR.ranges.push(r); AIR.labs.set(a, labs);
+  }
+  const mk = (P, C, map) => {
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(C, 4));
+    const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, side: THREE.DoubleSide, depthWrite: false }));
+    m.userData.faceMap = map; m.renderOrder = 2; groups.air.add(m); return g.attributes.color;
+  };
+  const w = B.wPos.length ? mk(B.wPos, B.wCol, B.wMap) : null, c = B.cPos.length ? mk(B.cPos, B.cCol, B.cMap) : null;
+  let l = null;
+  if (B.lPos.length) {
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(B.lPos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(B.lCol, 4));
+    AIR.lineMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.8 });
+    groups.air.add(new THREE.LineSegments(g, AIR.lineMat)); l = g.attributes.color;
+  }
+  AIR.attrs = { w, c, l };
+}
+// trasparenza delle maglie condivise: evidenziati e selezionato nascosti (li disegna buildAirHot), gli altri 0,22 o,
+// se c'è qualcosa da evidenziare, attenuati a 0,1 (pareti sfumate: piene in alto, quasi trasparenti in basso)
+function applyAirAlpha(rel, anyRel) {
+  const A = AIR.attrs; if (!A) return;
+  const op = anyRel ? 0.1 : 0.22, aTop = Math.min(0.75, op * 2.1), aBot = op * 0.25, capA = op * 0.4;
+  for (const r of AIR.ranges) {
+    const hide = rel.has(r.a) || state.selected === r.a;
+    if (A.w) for (let v = r.w0; v < r.w1; v++) A.w.array[v * 4 + 3] = hide ? 0 : WALL_TOP[(v - r.w0) % 6] ? aTop : aBot;
+    if (A.c) for (let v = r.c0; v < r.c1; v++) A.c.array[v * 4 + 3] = hide ? 0 : capA;
+    if (A.l) for (let v = r.l0; v < r.l1; v++) A.l.array[v * 4 + 3] = hide ? 0 : 1;
+  }
+  for (const x of [A.w, A.c, A.l]) if (x) x.needsUpdate = true;
+  if (AIR.lineMat) AIR.lineMat.opacity = anyRel ? 0.35 : 0.8;
+}
+// spazio evidenziato o selezionato: oggetti propri (pareti, cielo, bordi spessi, spigoli, impronta)
+function buildAirHot(a, ceil, hot, sel) {
+  const color = new THREE.Color(CAT_COLOR[category(a)]), op = sel ? 0.5 : 0.38, add = o => { groups.air.add(o); AIR.hotObjs.push(o); };
+  for (const { ring, loc, terr, top, bot, floating, pos, cap } of airGeom(a, ceil)) {
+    const al = [], aTop = Math.min(0.75, op * 2.1), aBot = op * 0.25, capA = sel ? 0.3 : 0.16;
+    for (let k = 0; k < pos.length / 18; k++) al.push(aBot, aBot, aTop, aBot, aTop, aTop);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(al.flatMap(x => [color.r, color.g, color.b, x]), 4));
+    const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, side: THREE.DoubleSide, depthWrite: false }));
+    mesh.userData.airspace = a; mesh.renderOrder = hot ? 3 : 2; add(mesh);
+    const cg = new THREE.BufferGeometry(); cg.setAttribute('position', new THREE.Float32BufferAttribute(cap, 3));
+    const capMesh = new THREE.Mesh(cg, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: capA, side: THREE.DoubleSide, depthWrite: false }));
+    capMesh.userData.airspace = a; capMesh.renderOrder = 2; add(capMesh);
+    const lineMat = new THREE.LineBasicMaterial({ color, transparent: !hot, opacity: hot ? 1 : 0.8 });
+    const outline = arr => new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(loc.map((p, i) => new THREE.Vector3(p.x, yOf(arr[i]), p.z))), lineMat);
+    add(outline(top)); if (floating) add(outline(bot));
+    if (hot) {
+      // spazi che contano: bordo superiore spesso, spigoli verticali ogni 3 km circa e impronta sul terreno
+      const pts = loc.map((p, i) => new THREE.Vector3(p.x, yOf(top[i]), p.z)); pts.push(pts[0]);
+      const fl = fatLine(pts, fatMat({ color, linewidth: sel ? 4 : 3 })); fl.renderOrder = 3; add(fl);
+      const edges = [];
+      for (let i = 0; i < ring.length; i += 8) if (top[i] > bot[i]) edges.push(new THREE.Vector3(loc[i].x, yOf(bot[i]), loc[i].z), new THREE.Vector3(loc[i].x, yOf(top[i]), loc[i].z));
+      add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(edges), lineMat));
+      if (floating) add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(loc.map((p, i) => new THREE.Vector3(p.x, yOf((Number.isFinite(terr[i]) ? terr[i] : 0) + 60), p.z))),
+        new THREE.LineDashedMaterial({ color, dashSize: 0.5, gapSize: 0.35 })).computeLineDistances());
+    }
+    // etichetta propria solo se lo spazio non è tra quelli in vista (là c'è già)
+    if (!AIR.labs.has(a)) {
+      let cx = 0, cz = 0; loc.forEach(p => { cx += p.x; cz += p.z; });
+      const lab = makeLabel(`${a.name} · ${limitText(a.lower)}–${limitText(a.upper)}`, CAT_COLOR[category(a)]);
+      lab.position.set(cx / loc.length, yOf(Math.max(...top)) + 0.9, cz / loc.length);
+      lab.userData.hot = hot; lab.visible = true; groups.labels.add(lab); AIR.hotLabs.push(lab);
     }
   }
-  if (B.wPos.length) {
-    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(B.wPos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(B.wCol, 4));
-    const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, side: THREE.DoubleSide, depthWrite: false })); m.userData.faceMap = B.wMap; m.renderOrder = 2; groups.air.add(m);
-  }
-  if (B.cPos.length) {
-    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(B.cPos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(B.cCol, 4));
-    const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, side: THREE.DoubleSide, depthWrite: false })); m.userData.faceMap = B.cMap; m.renderOrder = 2; groups.air.add(m);
-  }
-  if (B.lPos.length) {
-    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(B.lPos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(B.lCol, 3));
-    groups.air.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: anyRel ? 0.35 : 0.8 })));
-  }
+}
+function buildAirspaces() {
+  if (!state.proj) { groups.air.clear(); groups.labels.clear(); AIR.key = ''; return; }
+  const ceil = airCeilFt();
+  const rel = relevantAirspaces(), anyRel = rel.size > 0, all = visibleAirspaces();
+  const base = all.filter(a => bboxInFocus(a.bbox)), inBase = new Set(base);
+  const vis = [...base, ...all.filter(a => rel.has(a) && !inBase.has(a))];
+  if (!state.labelsTouched) ui.showLabels.checked = state.mode === 'expert' && vis.length <= 25;
+  const o = state.proj.origin;
+  const key = `${ceil}|${qnh()}|${ui.exag.value}|${o.lon},${o.lat}|${terrain.name || ''}:${terrain.demo}|${base.map(a => `${a.id}:${a.terrRev || 0}:${a.limRev || 0}`).join(',')}`;
+  if (key !== AIR.key) buildAirShared(base, ceil, key);
+  else { if (AIR.hotObjs.length) groups.air.remove(...AIR.hotObjs); if (AIR.hotLabs.length) groups.labels.remove(...AIR.hotLabs); AIR.hotObjs = []; AIR.hotLabs = []; }
+  applyAirAlpha(rel, anyRel);
+  for (const a of vis) { const hot = rel.has(a), sel = state.selected === a; if (hot || sel) buildAirHot(a, ceil, hot, sel); }
+  for (const [a, labs] of AIR.labs) for (const lab of labs) { lab.userData.hot = rel.has(a); lab.visible = lab.userData.hot || ui.showLabels.checked; }
+  dirty = true;
   renderLegend(vis);
 }
 
@@ -1667,7 +1720,18 @@ function nearFieldLow(pos, altFt) {
   return !!n && n.d / NM < FIELD_ZONE_NM && altFt - n.a.elevM * FT < FIELD_ZONE_AGL;
 }
 
+// Misure di fluidità per il rapporto di diagnosi (Impostazioni → Diagnosi): durata del passo di volo, intervallo tra i
+// fotogrammi mentre la carta si muove, attività lunghe (oltre 50 ms) degli ultimi due minuti. Solo in memoria.
+const perf = { tick: [], frame: [], long: [], errs: [] };
+const keepLast = (a, x, n) => { a.push(x); if (a.length > n) a.shift(); };
+try { new PerformanceObserver(l => { for (const e of l.getEntries()) keepLast(perf.long, { t: e.startTime, d: e.duration }, 400); }).observe({ entryTypes: ['longtask'] }); } catch { /* non supportato */ }
+addEventListener('error', e => keepLast(perf.errs, `${e.message} (${(e.filename || '').split('/').pop()}:${e.lineno})`, 10));
 function flyTick() {
+  const t0 = performance.now();
+  flyTickBody();
+  keepLast(perf.tick, performance.now() - t0, 240);
+}
+function flyTickBody() {
   const f = state.fly;
   if (!f.pos) return;
   const d = day(), pilot = ui.pilot.value, now = f.source === 'sim' ? f.simClock : (f.fixT || Date.now());
@@ -1885,9 +1949,18 @@ function drawAheadProfile() {
   const f = state.fly;
   if (!f.pos) { drawProfile(null); return; }
   const total = 10 * NM, n = 120, samples = [], pilot = ui.pilot.value, d = day();
+  // solo gli spazi entro 10,5 NM dall'aereo (prima, per ognuno dei 121 punti, si guardavano tutti)
+  const L = degLengths(f.pos.lat), r = 10.5 * NM, near = { lonMin: f.pos.lon - r / L.lon, lonMax: f.pos.lon + r / L.lon, latMin: f.pos.lat - r / L.lat, latMax: f.pos.lat + r / L.lat };
+  const asp = checkAirspaces().filter(a => !a.bbox || bOverlap(a.bbox, near));
+  // dentro/fuori lungo la linea davanti (insideAlong: un giro dei lati per spazio, non uno per punto)
+  const a0 = [f.pos.lon, f.pos.lat], a1 = destPoint(a0, f.trk, total / NM), ts = Array.from({ length: n + 1 }, (_, k) => k / n);
+  const ins = asp.map(a => { const r = new Array(n + 1).fill(false); for (const ring of a.clipped) insideAlong(ring, a0, a1, ts).forEach((v, k) => { if (v) r[k] = true; }); return r; });
+  const q = qnh();
   for (let k = 0; k <= n; k++) {
-    const dist = total * k / n, p = destPoint([f.pos.lon, f.pos.lat], f.trk, dist / NM), terr = terrain.elevFt(p[0], p[1]);
-    samples.push({ dist, lon: p[0], lat: p[1], terr, vds: pilot === 'basico' ? terrain.maxWithinFt(p[0], p[1]) + d.vdsAgl : NaN, air: airspacesAt(p[0], p[1], terr, checkAirspaces(), qnh()) });
+    const dist = total * k / n, p = destPoint(a0, f.trk, dist / NM), terr = terrain.elevFt(p[0], p[1]);
+    const air = [];
+    asp.forEach((a, j) => { if (ins[j][k]) air.push({ a, lo: limitFt(a.lower, terr, q), hi: limitFt(a.upper, terr, q) }); });
+    samples.push({ dist, lon: p[0], lat: p[1], terr, vds: pilot === 'basico' ? terrain.maxWithinFt(p[0], p[1]) + d.vdsAgl : NaN, air });
   }
   drawProfile(samples, total, f.altFt);
 }
@@ -1903,9 +1976,12 @@ function followCamera() {
   if (!f.camGoal || f.camGoal.pos.distanceTo(camPos) > 30 * K) { controls.target.copy(target); cam().position.copy(camPos); }
   f.camGoal = { pos: camPos, target };
 }
+// Posizione dal ricevitore GPS nativo (PosizionePlugin.java, dalla 0.23.1): satelliti, permessi, presenza del GPS
+const nativePos = () => (globalThis.Capacitor?.isNativePlatform?.() && globalThis.Capacitor?.Plugins?.Posizione) || null;
 function stopFly() {
   const f = state.fly;
   if (f.watch !== null) navigator.geolocation?.clearWatch(f.watch);
+  if (f.native) { const n = f.native; f.native = null; nativePos()?.ferma().catch(() => {}); for (const h of n.handles) Promise.resolve(h).then(x => x?.remove?.()).catch(() => {}); }
   clearInterval(f.timer);
   Object.assign(f, { active: false, source: null, watch: null, timer: null, sim: null, camGoal: null, follow: true });
   $('recenterBtn')?.setAttribute('aria-pressed', 'true');
@@ -1913,7 +1989,7 @@ function stopFly() {
   clearInterval(f.dog); f.dog = null; f.lost = false; f.acked = new Set(); f.gpsErr = 0; f.extFallback = false; f.watchCb = null;
   f.around = []; f.near = []; f.emph = new Set(); f.dg = null; f.arr = null; f.c5 = undefined; f.bigAck = null; f.lostAckUntil = 0; f.exits = new Map(); f.safeHere = NaN; f.slowAt = 0; groups.around?.clear();
   if (f.fallbackWatch != null) { navigator.geolocation?.clearWatch(f.fallbackWatch); f.fallbackWatch = null; }
-  $('instruments').classList.remove('stale'); renderIntegrity();
+  $('instruments').classList.remove('stale'); renderIntegrity(); $('alertbig').style.display = 'none';
   setHazard(state.terrPlan, cruise());
   $('gpsBtn').textContent = 'Avvia GPS'; $('simBtn').textContent = 'Simula';
   $('gpsBtn').classList.add('primary'); $('simBtn').classList.remove('on');
@@ -1923,7 +1999,7 @@ function startGps() {
   if (f.active && f.source !== 'ext') { stopFly(); return; }
   if (f.active) stopFly();
   if (!('geolocation' in navigator)) { showFlyMsg('Questo dispositivo non offre il GPS al programma.'); return; }
-  f.active = true; f.source = 'gps'; f.spoken.clear(); f.sessionT = Date.now(); keepAwake(true);
+  f.active = true; f.source = 'gps'; f.spoken.clear(); f.sessionT = Date.now(); keepAwake(true); f.nFix = 0; f.fonte = ''; f.lastCb = Date.now();
   $('gpsBtn').textContent = 'Ferma GPS'; $('gpsBtn').classList.remove('primary');
   const onFix = p => {
     const c = p.coords, pos = { lon: c.longitude, lat: c.latitude };
@@ -1939,7 +2015,7 @@ function startGps() {
       f.gpsAltOk = Number.isFinite(N);
       f.gpsAltAcc = Number.isFinite(c.altitudeAccuracy) ? c.altitudeAccuracy * FT : NaN;
     }
-    f.pos = pos; f.last = { pos, t: p.timestamp }; f.fixT = p.timestamp; f.fixWall = Date.now(); f.gpsErr = 0;
+    f.pos = pos; f.last = { pos, t: p.timestamp }; f.fixT = p.timestamp; f.fixWall = Date.now(); f.gpsErr = 0; f.nFix = (f.nFix || 0) + 1; f.lastCb = Date.now(); f.fonte = p.fonte || 'gps';
     f.gpsAcc = Number.isFinite(c.accuracy) ? c.accuracy : NaN;
     if (Number.isFinite(p.timestamp) && p.timestamp > 1.6e12) f.clockSkewS = (Date.now() - p.timestamp) / 1000;
     applyAltitude();
@@ -1954,14 +2030,35 @@ function startGps() {
       showFlyMsg('Il permesso di usare la posizione è stato negato. In questa pagina web il GPS può essere bloccato: usa l’app Android oppure la simulazione.');
       return;
     }
-    f.gpsErr = err.code; renderIntegrity();
+    f.gpsErr = err.code; f.lastCb = Date.now(); renderIntegrity();
   };
   f.watchOpts = { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 };
   f.watchCb = [onFix, onErr];
-  f.watch = navigator.geolocation.watchPosition(onFix, onErr, f.watchOpts);
   f.fixWall = Date.now(); f.watchAt = Date.now();
+  const np = nativePos();
+  if (np) {
+    // dal ricevitore: una posizione al secondo dal GPS (la rete solo come ripiego, segnata «rete»)
+    const n = f.native = { st: null, handles: [] };
+    const toP = o => ({ coords: { latitude: o.lat, longitude: o.lon, altitude: o.alt ?? null, accuracy: o.prec ?? NaN, altitudeAccuracy: o.precAlt ?? NaN, speed: o.vel ?? NaN, heading: o.rotta ?? NaN },
+      timestamp: Number.isFinite(o.tempo) && o.tempo > 1.6e12 ? o.tempo : Date.now() - (o.etaS || 0) * 1000, fonte: o.fonte });
+    n.handles.push(np.addListener('fix', o => {
+      if (f.native !== n) return;
+      if (n.st) { Object.assign(n.st, { visti: o.visti, usati: o.usati }); if (o.fonte === 'gps') { n.st.fixGps = (n.st.fixGps || 0) + 1; n.st.etaGpsS = 0; } else n.st.fixRete = (n.st.fixRete || 0) + 1; }
+      onFix(toP(o));
+    }));
+    n.handles.push(np.addListener('satelliti', o => { if (f.native === n && n.st) Object.assign(n.st, o); }));
+    n.handles.push(np.addListener('stato', o => { if (f.native === n) { n.st = o; renderIntegrity(); } }));
+    np.avvia().then(st => { if (f.native !== n) return; n.st = st; renderIntegrity(); }).catch(e => {
+      if (f.native !== n) return;
+      if (/NEGATO|negato/.test(`${e?.code} ${e?.message}`)) { stopFly(); showFlyMsg('Il permesso di usare la posizione è stato negato: Impostazioni → App → AerIA VFR → Autorizzazioni → Posizione.'); return; }
+      // modulo nativo non disponibile (APK vecchio): posizione della WebView
+      f.native = null; f.watch = navigator.geolocation.watchPosition(onFix, onErr, f.watchOpts);
+    });
+  } else f.watch = navigator.geolocation.watchPosition(onFix, onErr, f.watchOpts);
   startWatchdog();
 }
+// Diagnosi della posizione per il semaforo e l'avviso grande (gpsdiag.js); null se non c'è il modulo nativo
+const gpsDiag = () => (state.fly.native?.st ? gpsDiagnosis(state.fly.native.st, fixAgeS(), state.fly.fonte) : null);
 // Controllo dell'età della posizione, indipendente dal GPS: ogni secondo
 function startWatchdog() {
   clearInterval(state.fly.dog);
@@ -1987,14 +2084,18 @@ function watchdogTick() {
       applyAltitude(); flyTick();
     }, () => {}, { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 });
   }
-  if (f.source === 'gps' && age > 30 && Date.now() - (f.watchAt || 0) > 30000 && f.watchCb) {
+  // Richiesta della WebView ferma (nessuna risposta, né posizione né errore, da 90 s): si riavvia. Prima si riavviava
+  // ogni 30 s senza posizione, e ogni riavvio poteva far ripartire da capo la ricerca dei satelliti (0.23.1).
+  if (f.source === 'gps' && !f.native && f.watchCb && Date.now() - (f.lastCb || 0) > 90000 && Date.now() - (f.watchAt || 0) > 90000) {
     navigator.geolocation.clearWatch(f.watch);
-    f.watch = navigator.geolocation.watchPosition(...f.watchCb, f.watchOpts); f.watchAt = Date.now();
+    f.watch = navigator.geolocation.watchPosition(...f.watchCb, f.watchOpts); f.watchAt = Date.now(); f.lastCb = Date.now();
   }
+  if (f.native && Date.now() - (f.native.stAt || 0) > 5000) { const n = f.native; n.stAt = Date.now(); nativePos()?.stato().then(st => { if (f.native === n) n.st = st; }).catch(() => {}); }
   if (lost !== !!f.lost) {
     f.lost = lost;
-    if (lost) { f.events = []; f.inside = []; f.near = []; f.around = []; f.emph = new Set(); setHazard(false); say('Attenzione. Posizione GPS persa.', 'crit'); }
-    else say('Posizione GPS di nuovo disponibile.', 'info');
+    // la voce dice «persa» solo se una posizione c'era (prima della prima posizione è attesa, non perdita)
+    if (lost) { f.events = []; f.inside = []; f.near = []; f.around = []; f.emph = new Set(); setHazard(false); if (f.nFix || f.source !== 'gps') say('Attenzione. Posizione GPS persa.', 'crit'); }
+    else { say(f.nFix > 1 ? 'Posizione GPS di nuovo disponibile.' : 'Posizione GPS disponibile.', 'info'); if (!$('alertbig').dataset.key) $('alertbig').style.display = 'none'; }
     buildPlane(); buildAround(); updateHighlight();
     if (state.view === 'fly') renderFlyWarnings();
   }
@@ -2003,7 +2104,11 @@ function watchdogTick() {
   if (lost) {
     const big = $('alertbig');
     if (performance.now() < (f.lostAckUntil || 0)) big.style.display = 'none';
-    else { big.style.display = 'block'; big.dataset.key = ''; big.innerHTML = `Posizione non aggiornata da ${Math.round(age)} s: avvisi sospesi<small>Tocca per nascondere 1 minuto</small>`; }
+    else {
+      const dg = gpsDiag(), first = f.source === 'gps' && !f.nFix;
+      const head = dg && dg.lvl !== 'ok' ? (first ? `Nessuna posizione: ${dg.short}` : `Posizione persa: ${dg.short}`) : first ? 'In attesa della prima posizione GPS' : `Posizione non aggiornata da ${Math.round(age)} s: avvisi sospesi`;
+      big.style.display = 'block'; big.dataset.key = ''; big.innerHTML = `${esc(head)}<small>Tocca il semaforo in alto per i dettagli · tocca qui per nascondere 1 minuto</small>`;
+    }
     if (planeObj.q) { planeObj.q.visible = !planeObj.q.visible; dirty = true; }   // «?» lampeggiante sull'aereo
   }
   renderIntegrity();
@@ -2020,9 +2125,14 @@ function integrityItems() {
   else {
     const src = f.source === 'ext' ? (f.extFallback && Date.now() - (e.seen.gps || 0) > 3000 ? 'GPS del tablet (esterno muto)' : 'GPS esterno') : 'GPS del tablet';
     const acc = Number.isFinite(f.gpsAcc) ? ` ±${Math.round(f.gpsAcc)} m` : '';
+    const dg = f.source === 'gps' ? gpsDiag() : null;
+    if (dg && (dg.lvl !== 'ok' || age > FIX_OLD_S)) out.push({ k: 'Posizione', lvl: dg.lvl, short: dg.short, text: dg.text, action: dg.action });
+    else if (f.source === 'gps' && !f.nFix) out.push({ k: 'Posizione', lvl: age > FIX_LOST_S ? 'crit' : 'warn', short: 'in attesa', text: `Nessuna posizione dal GPS da ${Math.round(age)} s. All'aperto la prima posizione arriva di solito entro un minuto; al chiuso il GPS spesso non riceve. Controlla anche che il permesso sia «posizione precisa».` });
+    else {
     const lvl = age > FIX_LOST_S ? 'crit' : age > FIX_OLD_S || f.gpsAcc > 50 ? 'warn' : 'ok';
     out.push({ k: 'Posizione', lvl, short: age > FIX_LOST_S ? `persa ${Math.round(age)} s` : age > FIX_OLD_S ? `${Math.round(age)} s fa` : `ok${acc}`,
-      text: `${src}: ultimo dato ${age < 1 ? 'adesso' : `${Math.round(age)} s fa`}${acc ? `, precisione${acc}` : ''}.${f.gpsErr === 2 ? ' Il GPS dice: posizione non disponibile.' : f.gpsErr === 3 ? ' Il GPS non risponde in tempo.' : ''}${age > FIX_LOST_S ? ' Avvisi previsti sospesi finché la posizione non torna.' : ''}` });
+      text: `${src}: ultimo dato ${age < 1 ? 'adesso' : `${Math.round(age)} s fa`}${acc ? `, precisione${acc}` : ''}.${dg ? ` ${dg.text}` : ''}${f.gpsErr === 2 ? ' Il GPS dice: posizione non disponibile.' : f.gpsErr === 3 ? ' Il GPS non risponde in tempo.' : ''}${age > FIX_LOST_S ? ' Avvisi previsti sospesi finché la posizione non torna.' : ''}` });
+    }
   }
   if (!f.active || f.source === 'sim') out.push({ k: 'Quota', lvl: 'off', short: '—', text: 'Nessuna quota misurata.' });
   else if (age > FIX_LOST_S) out.push({ k: 'Quota', lvl: 'crit', short: 'ferma', text: 'Con la posizione persa anche la quota GPS è ferma: usa l’altimetro di bordo.' });
@@ -2063,6 +2173,9 @@ function readyItems() {
   add(state.voice ? 'ok' : 'warn', 'Voce', state.voice ? 'Avvisi sonori accesi (prova del suono quando si accendono).' : 'Avvisi sonori spenti: tasto «Voce».');
   return out;
 }
+// pulsante per aprire le impostazioni di Android (permesso «posizione precisa», posizione spenta), solo nell'app
+const setBtn = x => (x.action && nativePos() ? `<br><button type="button" class="btn sm" data-setact="${esc(x.action)}" style="margin-top:6px">${x.action === 'posizione' ? 'Apri le impostazioni della posizione' : 'Apri le impostazioni dell’app'}</button>` : '');
+$('integD').addEventListener('click', e => { const b = e.target.closest('[data-setact]'); if (b) nativePos()?.impostazioni({ cosa: b.dataset.setact }).catch(() => {}); });
 function renderIntegrity() {
   const el = $('integ'); if (!el) return;
   const it = integrityItems();
@@ -2074,12 +2187,12 @@ function renderIntegrity() {
   const dot = l => `<i style="width:10px;height:10px;border-radius:50%;display:inline-block;margin-top:4px;background:${{ ok: '#2fbf71', warn: '#f5b301', crit: '#ff4d5e', off: '#8796a3' }[l]}"></i>`;
   if (d.style.display === 'block' && state.fly.ph.phase !== 'volo') {
     const rd = readyItems(), bad = rd.filter(x => x.lvl === 'crit').length, wn = rd.filter(x => x.lvl === 'warn').length;
-    d.innerHTML = it.map(x => `<div>${dot(x.lvl)}<b>${esc(x.k)}</b><span>${esc(x.text)}</span></div>`).join('')
+    d.innerHTML = it.map(x => `<div>${dot(x.lvl)}<b>${esc(x.k)}</b><span>${esc(x.text)}${setBtn(x)}</span></div>`).join('')
       + `<p style="margin:10px 0 2px;font-weight:800">Pronto al volo? ${bad ? `<span style="color:var(--crit)">${bad} da risolvere</span>` : wn ? `${wn} da controllare` : '<span style="color:var(--ok)">tutto a posto</span>'}</p>`
       + rd.map(x => `<div>${dot(x.lvl)}<b>${esc(x.k)}</b><span>${esc(x.text)}</span></div>`).join('');
     return;
   }
-  if (d.style.display === 'block') d.innerHTML = it.map(x => `<div><i style="width:10px;height:10px;border-radius:50%;display:inline-block;margin-top:4px;background:${{ ok: '#2fbf71', warn: '#f5b301', crit: '#ff4d5e', off: '#8796a3' }[x.lvl]}"></i><b>${esc(x.k)}</b><span>${esc(x.text)}</span></div>`).join('');
+  if (d.style.display === 'block') d.innerHTML = it.map(x => `<div>${dot(x.lvl)}<b>${esc(x.k)}</b><span>${esc(x.text)}${setBtn(x)}</span></div>`).join('');
 }
 $('integ').addEventListener('click', () => { const d = $('integD'); d.style.display = d.style.display === 'block' ? 'none' : 'block'; renderIntegrity(); });
 document.addEventListener('pointerdown', e => { const d = $('integD'); if (d.style.display === 'block' && !d.contains(e.target) && !e.target.closest('#integ')) d.style.display = 'none'; });
@@ -2633,6 +2746,8 @@ function setArea() {
   state.proj = makeProjection({ lon: (a.lonMin + a.lonMax) / 2, lat: (a.latMin + a.latMax) / 2 });
 }
 function rebuildAll(resetCam) {
+  // tutto da rifare (pacchetto o terreno caricato a mano): anche le geometrie degli spazi in memoria
+  for (const a of state.airspaces) a.terrRev = (a.terrRev || 0) + 1;
   setArea(); prepareAirspaces();
   if (resetCam) resetCamera();
   updateFocus(true); buildTerrain(); buildBasemap(); buildRadar(); buildAirspaces(); buildFeatures(); buildRoute(); buildPlane(); buildWeather(); buildForecast();
@@ -3583,7 +3698,7 @@ renderer.setAnimationLoop(t => {
   lastLoopT = t;
   if (!dirty && t - lastRender < 2000) return;
   // fluidità: intervallo tra due disegni consecutivi mentre la carta si muove (dito, inerzia o camera in volo)
-  if (t - lastInteract < 250 || (g && !jobs.size)) { const dt = t - lastRender; if (dt > 0 && dt < 250) adaptQuality(dt); }
+  if (t - lastInteract < 250 || (g && !jobs.size)) { const dt = t - lastRender; if (dt > 0 && dt < 250) { adaptQuality(dt); keepLast(perf.frame, dt, 600); } }
   dirty = false; lastRender = t; stats.frames++;
   scaleLabels(); renderer.render(scene, cam());
 });
@@ -4021,6 +4136,46 @@ $('trafficAlert').addEventListener('click', e => {
   bind('alSens', 'sens', el => el.value, sel);
   for (const [id, k] of [['al500', 'call500'], ['alNear', 'near'], ['alTod', 'tod']]) bind(id, k, el => el.checked, (el, v) => { el.checked = v !== false; });
 }
+// Rapporto di diagnosi (Impostazioni → Diagnosi): dati tecnici per capire, sul tablet vero, perché il GPS non trova
+// la posizione o il programma va a scatti. Nessuna posizione nel testo. Codice di fringuello79 di Avezzano.
+const msStats = a => {
+  if (!a.length) return 'nessuna misura';
+  const s = [...a].sort((x, y) => x - y), p = k => s[Math.min(s.length - 1, Math.floor(s.length * k))].toFixed(0);
+  return `${s.length} misure · mediana ${p(0.5)} ms · 95 % ${p(0.95)} ms · massimo ${s.at(-1).toFixed(0)} ms`;
+};
+async function diagReport() {
+  const now = performance.now(), long = perf.long.filter(e => now - e.t < 120000), f = state.fly, i = renderer.info;
+  let gpu = '—';
+  try { const gl = renderer.getContext(), x = gl.getExtension('WEBGL_debug_renderer_info'); gpu = x ? `${gl.getParameter(x.UNMASKED_VENDOR_WEBGL)} ${gl.getParameter(x.UNMASKED_RENDERER_WEBGL)}` : gl.getParameter(gl.RENDERER); } catch { /* non disponibile */ }
+  let st = null; try { st = await nativePos()?.stato(); } catch { /* app vecchia */ }
+  let perm = '—'; try { perm = (await navigator.permissions?.query({ name: 'geolocation' }))?.state || '—'; } catch { /* non supportato */ }
+  let objs = 0; scene.traverse(() => objs++);
+  return [
+    `AerIA VFR ${VERSION} · rapporto del ${new Date().toLocaleString('it-IT')}`,
+    `Dispositivo: ${st?.modello || '—'} · Android API ${st?.android ?? '—'} · ${navigator.userAgent.match(/Chrome\/[\d.]+/)?.[0] || navigator.userAgent}`,
+    `Schermo: ${screen.width}×${screen.height} · finestra ${innerWidth}×${innerHeight} · densità ${devicePixelRatio} · processori ${navigator.hardwareConcurrency || '—'} · memoria ${navigator.deviceMemory || '—'} GB`,
+    `Scheda grafica: ${gpu}`,
+    `Grafica: ${quality.mode}, gradino ${quality.level} (${QLEVELS[quality.level].mesh}, risoluzione ${qPr()}) · cambi ${quality.changes} · disegni ${i.render.calls} · triangoli ${i.render.triangles} · oggetti ${objs} · tessere ${LOD.shown.length}/${LOD.cache.size}`,
+    `Fotogrammi con la carta in movimento: ${msStats(perf.frame)}`,
+    `Passo di volo (a ogni posizione): ${msStats(perf.tick)}`,
+    `Attività lunghe negli ultimi 2 minuti: ${long.length} · in tutto ${Math.round(long.reduce((q, e) => q + e.d, 0))} ms · la più lunga ${Math.round(Math.max(0, ...long.map(e => e.d)))} ms`,
+    `GPS: ${f.active ? (f.source === 'gps' ? 'del tablet' : f.source) : 'spento'} · posizioni ricevute ${f.nFix || 0} · ultima ${f.active ? `${fixAgeS().toFixed(1)} s fa` : '—'} · precisione ${Number.isFinite(f.gpsAcc) ? `${Math.round(f.gpsAcc)} m` : '—'} · fonte ${f.fonte || '—'} · errore ${f.gpsErr || 0} · permesso (web) ${perm}`,
+    `GPS nativo: ${st ? Object.entries(st).filter(([k]) => !['modello', 'android'].includes(k)).map(([k, v]) => `${k}=${v}`).join(' ') : 'non disponibile (pagina web o app precedente alla 0.23.1)'}`,
+    `Diagnosi: ${(st ? gpsDiagnosis(st, fixAgeS(), f.fonte) : null)?.text || '—'}`,
+    `Errori del programma: ${perf.errs.join(' | ') || 'nessuno'}`,
+  ].join('\n');
+}
+$('diagBtn').addEventListener('click', async () => {
+  const out = $('diagOut'); out.style.display = 'block'; out.value = 'Preparazione…';
+  try { out.value = await diagReport(); } catch (e) { out.value = `Rapporto non riuscito: ${e.message}`; }
+  $('diagCopy').disabled = false;
+});
+$('diagCopy').addEventListener('click', async () => {
+  const out = $('diagOut');
+  try { await navigator.clipboard.writeText(out.value); $('diagCopy').textContent = 'Copiato'; }
+  catch { out.select(); document.execCommand?.('copy'); $('diagCopy').textContent = 'Selezionato: copia'; }
+  setTimeout(() => { $('diagCopy').textContent = 'Copia'; }, 2500);
+});
 $('trafficBand').value = String(state.trafficBand);
 $('trafficBand').addEventListener('change', e => { state.trafficBand = Number(e.target.value); savePrefs(); updateTraffic(); });
 

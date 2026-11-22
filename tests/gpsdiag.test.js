@@ -1,0 +1,38 @@
+// AerIA VFR · © 2026 fringuello79 (Avezzano). Tutti i diritti riservati.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { gpsDiagnosis } from '../web-prototype/src/gpsdiag.js';
+
+const ok = { gpsPresente: true, gpsAcceso: true, reteAccesa: true, precisa: true, approssimativa: true, attivo: true, visti: 18, usati: 9, fixGps: 120, fixRete: 3, etaGpsS: 0.4, attesaS: 300, errore: '' };
+
+test('diagnosi del GPS: permessi', () => {
+  assert.equal(gpsDiagnosis(null), null);
+  let d = gpsDiagnosis({ ...ok, precisa: false, approssimativa: false });
+  assert.equal(d.short, 'permesso negato'); assert.equal(d.action, 'app');
+  d = gpsDiagnosis({ ...ok, precisa: false });
+  assert.equal(d.short, 'solo approssimativa'); assert.equal(d.lvl, 'crit'); assert.equal(d.action, 'app');
+});
+
+test('diagnosi del GPS: tablet senza GPS, GPS spento, errore', () => {
+  assert.equal(gpsDiagnosis({ ...ok, gpsPresente: false, fixGps: 0 }).short, 'tablet senza GPS');
+  assert.equal(gpsDiagnosis({ ...ok, gpsAcceso: false }).action, 'posizione');
+  assert.equal(gpsDiagnosis({ ...ok, errore: 'SecurityException: x' }).short, 'errore');
+});
+
+test('diagnosi del GPS: in attesa della prima posizione', () => {
+  let d = gpsDiagnosis({ ...ok, fixGps: 0, attesaS: 20, visti: 6, usati: 0 });
+  assert.equal(d.lvl, 'warn'); assert.equal(d.short, 'attesa GPS 0/6 sat');
+  assert.match(d.text, /meno di un minuto/);
+  d = gpsDiagnosis({ ...ok, fixGps: 0, attesaS: 75, visti: 3, usati: 0 });
+  assert.equal(d.lvl, 'crit'); assert.match(d.text, /cielo libero/);
+  // tanti satelliti usati ma ancora nessuna posizione dopo un minuto: non si dà la colpa al cielo
+  d = gpsDiagnosis({ ...ok, fixGps: 0, attesaS: 75, visti: 20, usati: 8 });
+  assert.doesNotMatch(d.text, /cielo libero/);
+});
+
+test('diagnosi del GPS: rete, persa, buona', () => {
+  assert.equal(gpsDiagnosis({ ...ok, etaGpsS: 12 }, 1, 'rete').short, 'dalla rete');
+  assert.equal(gpsDiagnosis(ok, 14, 'gps').short, 'persa 14 s');
+  assert.deepEqual([gpsDiagnosis(ok, 0.5, 'gps').lvl, gpsDiagnosis(ok, 0.5, 'gps').short], ['ok', 'GPS 9 sat']);
+  assert.equal(gpsDiagnosis({ ...ok, usati: 3 }, 0.5, 'gps').lvl, 'warn');
+});

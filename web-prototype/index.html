@@ -845,6 +845,14 @@ input[type="checkbox"], #wpList input[type="checkbox"], #wpList .meta label.air 
           <div id="devStatus" class="col"></div>
         </div>
       </details>
+      <details class="dsec" id="diagSec">
+        <summary><svg class="ic"><use href="#i-chev"/></svg>Diagnosi (GPS e fluidità)</summary>
+        <div class="dbody">
+          <p class="note">Se il GPS non trova la posizione o il programma è lento: usa l’app qualche minuto (anche con «Avvia GPS» all’aperto), poi prepara il rapporto e mandalo a chi ti aiuta. Contiene solo dati tecnici del tablet e del programma, nessuna posizione.</p>
+          <div class="row" style="gap:8px;flex-wrap:wrap"><button type="button" class="btn" id="diagBtn">Prepara il rapporto</button><button type="button" class="btn" id="diagCopy" disabled>Copia</button></div>
+          <textarea id="diagOut" class="fld" rows="12" readonly style="width:100%;margin-top:8px;font:12px/1.35 ui-monospace,monospace;display:none"></textarea>
+        </div>
+      </details>
       <details class="dsec">
         <summary><svg class="ic"><use href="#i-chev"/></svg>Informazioni ufficiali</summary>
         <div class="dbody">
