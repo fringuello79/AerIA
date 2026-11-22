@@ -40,7 +40,8 @@ import com.getcapacitor.annotation.PermissionCallback;
 public class PosizionePlugin extends Plugin {
     private LocationManager lm;
     private boolean attivo = false;
-    private int visti = 0, usati = 0;
+    private int visti = 0, usati = 0, forti = 0, effemeridi = 0;
+    private float cn0max = 0f;
     private long ultimoGpsMs = 0, ultimoReteMs = 0, avvioMs = 0, primoFixMs = 0;
     private int fixGps = 0, fixRete = 0;
     private String errore = "";
@@ -63,15 +64,21 @@ public class PosizionePlugin extends Plugin {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             satelliti = new GnssStatus.Callback() {
                 @Override public void onSatelliteStatusChanged(GnssStatus s) {
-                    int n = s.getSatelliteCount(), u = 0;
-                    for (int i = 0; i < n; i++) if (s.usedInFix(i)) u++;
-                    if (n != visti || u != usati) {
-                        visti = n; usati = u;
-                        JSObject o = new JSObject(); o.put("visti", visti); o.put("usati", usati);
+                    // forza del segnale (C/N0): sotto 25 dB-Hz un satellite di solito non basta per la posizione
+                    // (al chiuso i segnali arrivano tutti deboli); effemeridi = dati dell'orbita già scaricati
+                    int n = s.getSatelliteCount(), u = 0, f = 0, e = 0; float m = 0f;
+                    for (int i = 0; i < n; i++) {
+                        if (s.usedInFix(i)) u++;
+                        float c = s.getCn0DbHz(i); if (c >= 25f) f++; if (c > m) m = c;
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && s.hasEphemerisData(i)) e++;   // da Android 8
+                    }
+                    if (n != visti || u != usati || f != forti || e != effemeridi || Math.abs(m - cn0max) >= 1f) {
+                        visti = n; usati = u; forti = f; effemeridi = e; cn0max = m;
+                        JSObject o = new JSObject(); o.put("visti", visti); o.put("usati", usati); o.put("forti", forti); o.put("effemeridi", effemeridi); o.put("cn0max", Math.round(cn0max));
                         notifyListeners("satelliti", o);
                     }
                 }
-                @Override public void onStopped() { visti = 0; usati = 0; }
+                @Override public void onStopped() { visti = 0; usati = 0; forti = 0; }
             };
         }
     }
@@ -89,6 +96,9 @@ public class PosizionePlugin extends Plugin {
         o.put("attivo", attivo);
         o.put("visti", visti);
         o.put("usati", usati);
+        o.put("forti", forti);
+        o.put("effemeridi", effemeridi);
+        o.put("cn0max", Math.round(cn0max));
         o.put("fixGps", fixGps);
         o.put("fixRete", fixRete);
         long ora = SystemClock.elapsedRealtime();
@@ -151,7 +161,7 @@ public class PosizionePlugin extends Plugin {
     private void parti(PluginCall call) {
         ferma();
         errore = "";
-        visti = 0; usati = 0; fixGps = 0; fixRete = 0; ultimoGpsMs = 0; ultimoReteMs = 0; primoFixMs = 0;
+        visti = 0; usati = 0; forti = 0; effemeridi = 0; cn0max = 0f; fixGps = 0; fixRete = 0; ultimoGpsMs = 0; ultimoReteMs = 0; primoFixMs = 0;
         avvioMs = SystemClock.elapsedRealtime();
         Looper main = Looper.getMainLooper();
         try {

@@ -23,11 +23,15 @@ test('diagnosi del GPS: in attesa della prima posizione', () => {
   let d = gpsDiagnosis({ ...ok, fixGps: 0, attesaS: 20, visti: 6, usati: 0 });
   assert.equal(d.lvl, 'warn'); assert.equal(d.short, 'attesa GPS 0/6 sat');
   assert.match(d.text, /meno di un minuto/);
+  // app precedente (senza la forza del segnale): consiglio generico
   d = gpsDiagnosis({ ...ok, fixGps: 0, attesaS: 75, visti: 3, usati: 0 });
   assert.equal(d.lvl, 'crit'); assert.match(d.text, /cielo libero/);
-  // tanti satelliti usati ma ancora nessuna posizione dopo un minuto: non si dà la colpa al cielo
-  d = gpsDiagnosis({ ...ok, fixGps: 0, attesaS: 75, visti: 20, usati: 8 });
-  assert.doesNotMatch(d.text, /cielo libero/);
+  // caso del tablet di prova (22/11): 28 visti, nessuno usato, segnali deboli → al chiuso
+  d = gpsDiagnosis({ ...ok, fixGps: 0, attesaS: 135, visti: 28, usati: 0, forti: 1 });
+  assert.match(d.text, /Segnale troppo debole: 1 satelliti abbastanza forti su 28 visti/);
+  // segnali forti ma ancora nessuna posizione: avvio a freddo, non si dà la colpa al cielo
+  d = gpsDiagnosis({ ...ok, fixGps: 0, attesaS: 135, visti: 28, usati: 0, forti: 12 });
+  assert.match(d.text, /orbite/); assert.doesNotMatch(d.text, /debole|cielo libero/);
 });
 
 test('diagnosi del GPS: rete, persa, buona', () => {

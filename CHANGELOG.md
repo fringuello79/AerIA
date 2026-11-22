@@ -8,7 +8,28 @@ Ogni versione indica il commit da cui è stata creata. Il repository pubblico `f
 0.20.0 (8/11/2026) da un solo commit: le versioni precedenti restano descritte qui, senza commit né pagina di rilascio. Il workflow «App Android» crea in automatico l'etichetta
 (tag) `vX.Y.Z` su quel commit e, per la versione più recente, la pagina di rilascio su GitHub con l'APK.
 
-## [0.23.1] - 2026-11-22
+## [0.23.2] - 2026-11-22
+
+Dal primo rapporto di diagnosi del tablet di prova (Lenovo TB125FU, Mali-G52, Android 13): ricevitore GPS presente,
+28 satelliti visti e nessuno usato dopo oltre due minuti; carta a 30 fotogrammi al secondo con picchi di 83 ms;
+passo di volo di 83 ms di mediana.
+
+### GPS
+- Il modulo nativo riporta anche la **forza del segnale** dei satelliti (C/N0: quanti sopra 25 dB-Hz, il più forte) e
+  quanti hanno già i dati dell'orbita (da Android 8).
+- Diagnosi più precisa quando la posizione non arriva: con molti satelliti visti ma deboli dice «segnale troppo debole»
+  (al chiuso, vicino a una finestra); con segnali forti spiega che il GPS sta scaricando i dati delle orbite e che la
+  prima volta può servire fino a 10–15 minuti. Prima diceva «pochi satelliti» anche con 28 satelliti visti.
+
+### Fluidità
+- **Passo di volo spezzato:** subito solo avvisi, voce, aereo e caselle; evidenziazione degli spazi, scia, planata,
+  campi vicini, emergenza, limiti sul bordo, elenco degli avvisi, profilo davanti, tempi nei fotogrammi successivi, uno
+  per fotogramma. Con CPU rallentata 6 volte: mediana da 81 a 47 ms, 95 % da 152 a 83 ms, massimo da 266 a 88 ms.
+- **Qualità grafica automatica con obiettivo più alto:** scende di un gradino se la mediana dei fotogrammi supera 28 ms
+  (prima 40) e risale solo sotto 14 ms (prima 19). I dispositivi con 4 GB di memoria partono da un gradino medio. Sul
+  tablet di prova la qualità era salita al massimo (risoluzione 1,5) e la carta andava a 30 fotogrammi al secondo.
+
+## [0.23.1] - 2026-11-22 · commit cd51634915078b5942ef6ff87915a6c04c67f94b
 
 Dalla prova sul tablet di Ale: la posizione compariva un attimo e poi restava «persa», e il programma andava a
 scatti. Correzioni misurate con la CPU rallentata 6 volte (come un tablet di fascia media).

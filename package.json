@@ -1,6 +1,6 @@
 {
   "name": "aeria-vfr",
-  "version": "0.23.1",
+  "version": "0.23.2",
   "private": true,
   "description": "Navigatore VFR per VDS, VDS avanzato e PPL",
   "type": "module",

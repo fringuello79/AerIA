@@ -17,9 +17,14 @@ export function gpsDiagnosis(st, ageS = 0, fonte = '') {
   if (!st.gpsPresente) return { lvl: 'crit', short: 'tablet senza GPS', action: '', text: `Questo tablet non ha il ricevitore GPS: la posizione arriva solo dalla rete Wi-Fi (a terra, imprecisa; in volo niente). Per volare serve un GPS esterno via Bluetooth (Impostazioni → Strumenti esterni).${st.fixRete ? ' Ora la posizione viene dalla rete.' : ''}` };
   if (!st.gpsAcceso) return { lvl: 'crit', short: 'GPS spento', action: 'posizione', text: 'La posizione di Android è spenta: accendila (tendina in alto → «Posizione», o Impostazioni → Posizione).' };
   if (!st.fixGps) {
-    const wait = Math.round(st.attesaS || 0), few = (st.usati || 0) < 4;
-    const sky = wait >= SKY_S && few ? ' Pochi satelliti: serve il cielo libero (all’aperto, lontano da edifici; in casa il GPS di solito non riceve). La prima posizione può richiedere qualche minuto se il tablet è rimasto spento o lontano a lungo.' : ' Attendi all’aperto: la prima posizione arriva di solito in meno di un minuto.';
-    return { lvl: wait >= SKY_S ? 'crit' : 'warn', short: `attesa GPS ${st.usati || 0}/${st.visti || 0} sat`, action: '', text: `In attesa della prima posizione dal GPS da ${wait} s: ${sat}.${sky}${st.fixRete ? ' Intanto c’è una posizione dalla rete, imprecisa.' : ''}` };
+    // forti = satelliti con segnale ≥ 25 dB-Hz (dalla 0.23.2; assente nelle app precedenti)
+    const wait = Math.round(st.attesaS || 0), known = Number.isFinite(st.forti), forti = st.forti || 0;
+    let why;
+    if (wait < SKY_S) why = ' Attendi all’aperto: la prima posizione arriva di solito in meno di un minuto.';
+    else if (known && forti < 4) why = ` Segnale troppo debole: ${forti} satelliti abbastanza forti su ${st.visti || 0} visti. Succede al chiuso o vicino a una finestra: esci all’aperto, lontano da edifici e alberi.`;
+    else if (known) why = ` Il segnale è buono (${forti} satelliti forti): il GPS sta scaricando i dati delle orbite, come dopo tanto tempo senza usarlo. Tieni l’app aperta all’aperto: la prima volta può servire fino a 10–15 minuti, poi la posizione arriva in pochi secondi.`;
+    else why = ' Serve il cielo libero (all’aperto, lontano da edifici; in casa il GPS di solito non riceve). La prima posizione può richiedere qualche minuto se il GPS non è stato usato a lungo.';
+    return { lvl: wait >= SKY_S ? 'crit' : 'warn', short: `attesa GPS ${st.usati || 0}/${st.visti || 0} sat`, action: '', text: `In attesa della prima posizione dal GPS da ${wait} s: ${sat}${known ? ` (${forti} con segnale forte)` : ''}.${why}${st.fixRete ? ' Intanto c’è una posizione dalla rete, imprecisa (non usarla in volo).' : ''}` };
   }
   if (fonte === 'rete') return { lvl: 'warn', short: 'dalla rete', action: '', text: `Il GPS non dà posizione da ${Math.round(st.etaGpsS)} s (${sat}): si usa quella della rete, imprecisa. Controlla che il tablet veda il cielo.` };
   if (ageS > 10) return { lvl: 'crit', short: `persa ${Math.round(ageS)} s`, action: '', text: `Il GPS ha smesso di dare la posizione da ${Math.round(ageS)} s (${sat}). Di solito è il cielo coperto dal tettuccio o dal cruscotto: sposta il tablet vicino al vetro.` };

@@ -256,7 +256,7 @@ const quality = (() => {
   let q = {}; try { q = JSON.parse(localStorage.getItem('airplanning.grafica') || '{}'); } catch { /* nessuna preferenza */ }
   const mode = ['auto', 'alta', 'media', 'bassa'].includes(q.mode) ? q.mode : 'auto';
   // primo avvio: dispositivi con poca memoria o pochi processori partono da un gradino medio
-  const weak = (navigator.deviceMemory && navigator.deviceMemory <= 3) || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4);
+  const weak = (navigator.deviceMemory && navigator.deviceMemory <= 4) || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4);
   const level = mode === 'auto' ? (Number.isInteger(q.level) ? Math.max(0, Math.min(QLEVELS.length - 1, q.level)) : weak ? 3 : 1) : QFIXED[mode];
   return { mode, level, samples: [], fast: 0, changes: 0 };
 })();
@@ -326,6 +326,10 @@ controls.addEventListener('change', () => { dirty = true; lastInteract = perform
 // Lavori pesanti (dettaglio del terreno, ridisegno dell'area) uno per fotogramma e solo a carta ferma
 const jobs = new Map();
 const queueJob = (key, fn) => { jobs.set(key, fn); };
+// lavori del passo di volo rimandati: uno per fotogramma, anche mentre la carta si muove (la stessa chiave non si accoda
+// due volte: con posizioni più fitte vale l'ultima)
+const later = new Map();
+const afterTick = (key, fn) => { later.set(key, fn); };
 // Linee spesse in pixel (come nei navigatori professionali): leggibili a ogni distanza, a differenza delle linee WebGL da 1 pixel
 const fatLines = new Set();
 function fatMat(o) {
@@ -1804,14 +1808,17 @@ function flyTickBody() {
   // spazi vicini: una volta per spazio e per volo, a voce bassa (senza toni)
   if (state.voice && state.alertSet.near) for (const x of f.near) { const k = `near-${x.a.id}`; if (!f.spoken.has(k)) { f.spoken.set(k, 0); say(nearSpeech(x), 'info'); } }
   for (const w of f.extra) if (!f.spoken.has(w.title)) { f.spoken.set(w.title, 0); say(w.title, w.lvl); }
-  updateHighlight();
-  f.fixPerf = performance.now(); buildPlane(); recordTrack(now); buildTrail();
+  // Subito solo ciò che serve alla sicurezza (avvisi, voce, aereo, caselle); il resto nei fotogrammi successivi, uno per
+  // fotogramma (afterTick). Sul tablet di prova (Mali-G52) il passo intero durava 83 ms di mediana in un colpo solo: a
+  // ogni posizione la carta si fermava per un attimo (0.23.2).
+  f.fixPerf = performance.now(); buildPlane(); recordTrack(now);
+  afterTick('highlight', updateHighlight); afterTick('trail', buildTrail);
   ensureTerrainFor(boundsAround([f.pos], 25));
-  if (!f.glideAt || Date.now() - f.glideAt > 3000) { f.glideAt = Date.now(); buildGlide(); renderNearest(); renderEmergency(); buildAround(); }
-  buildDirect();
-  if (state.view === 'fly') { renderFlyWarnings(); drawAheadProfile(); }
-  if (state.view === 'radio') renderRadio();
-  renderTimers();
+  if (!f.glideAt || Date.now() - f.glideAt > 3000) { f.glideAt = Date.now(); afterTick('glide', buildGlide); afterTick('nearest', renderNearest); afterTick('emerg', renderEmergency); afterTick('around', buildAround); }
+  afterTick('direct', buildDirect);
+  if (state.view === 'fly') { afterTick('warnings', renderFlyWarnings); afterTick('ahead', drawAheadProfile); }
+  if (state.view === 'radio') afterTick('radio', renderRadio);
+  afterTick('timers', renderTimers);
   // carta libera: torna da sola sull'aereo dopo 30 s senza tocchi (il mirino resta per tornare subito)
   if (state.view === 'fly' && !f.follow && !state.review && !f.hold && performance.now() - lastInteract > 30000) setFollow(true);
   followCamera();
@@ -3687,6 +3694,7 @@ renderer.setAnimationLoop(t => {
       if (updateFocus()) { queueJob('air', buildAirspaces); queueJob('feat', buildFeatures); queueJob('base', buildBasemap); }
     }
   }
+  if (later.size) { const [k, fn] = later.entries().next().value; later.delete(k); fn(); dirty = true; }
   // terreno: scelta delle tessere a ogni fotogramma; costruzione entro 4 ms mentre ci si muove, 12 ms a carta ferma
   if (state.proj) lodUpdate(idle ? 12 : 4);
   const g = state.fly.camGoal;
@@ -3707,8 +3715,11 @@ function adaptQuality(dt) {
   const S = quality.samples; S.push(dt);
   if (S.length < 45) return;
   const med = [...S].sort((a, b) => a - b)[S.length >> 1]; S.length = 0;
-  if (med > 40 && quality.level < QLEVELS.length - 1) { quality.fast = 0; setQualityLevel(quality.level + 1); }
-  else if (med < 19) { if (++quality.fast >= 4 && quality.level > 0) { quality.fast = 0; setQualityLevel(quality.level - 1); } }
+  // obiettivo: almeno 35–40 fotogrammi al secondo mentre la carta si muove. Fino alla 0.23.1 si scendeva solo oltre 40 ms
+  // (25 al secondo) e si saliva sotto 19 ms: sul tablet di prova (Mali-G52) la qualità era salita al massimo e la carta
+  // andava a 30 fotogrammi con picchi di 83 ms (0.23.2)
+  if (med > 28 && quality.level < QLEVELS.length - 1) { quality.fast = 0; setQualityLevel(quality.level + 1); }
+  else if (med < 14) { if (++quality.fast >= 4 && quality.level > 0) { quality.fast = 0; setQualityLevel(quality.level - 1); } }
   else quality.fast = 0;
 }
 function setQualityLevel(level) {
